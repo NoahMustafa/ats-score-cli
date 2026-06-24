@@ -66,6 +66,11 @@ _GENERIC = {
     "control", "report", "record", "collect", "follow", "complete", "identify",
     "achieve", "apply", "adopt", "advise", "arrange", "attend", "assess",
     "balance", "build", "carry", "check", "clear", "close", "conduct", "create",
+    # single English words ESCO lists as "skills" but that are noise on a resume
+    # ("re", "scale", "source" from prose; "design"/"engineering" matter only as
+    # multi-word phrases like "responsive design"/"data engineering").
+    "re", "scale", "source", "design", "engineering", "reporting", "sales",
+    "research", "planning", "testing", "writing", "teaching", "training",
 }
 
 
@@ -114,7 +119,7 @@ def _skills(text: str) -> set[str]:
             if " " in s or not any(s in m.split() for m in multi)}
 
 
-def detect_skills(text: str, limit: int = 12) -> list[str]:
+def detect_skills(text: str, limit: int = 20) -> list[str]:
     """Skills the parser can read in a resume (no JD). A readback, not a score:
     if a headline skill is missing here, the resume's formatting hid it.
     Ranked specific-first (multi-word before single)."""

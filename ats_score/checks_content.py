@@ -154,9 +154,16 @@ def check_content(doc: Document) -> ContentResult:
             findings.append(Finding("warn", f"line {ln}: bullet too long", 2))
 
     if achievements and unquantified:
-        findings.append(Finding(
-            "warn", f"{unquantified}/{len(achievements)} bullets lack numbers",
-            min(20, unquantified * 2)))
+        # Not every bullet can carry a metric ("Built ETL pipeline in Airflow"
+        # is fine). Tolerate ~30% unquantified; penalize only the excess, scaled
+        # by ratio — a few bare bullets barely dent the score, a resume with
+        # almost no numbers still takes a real hit (cap 15).
+        ratio = unquantified / len(achievements)
+        penalty = min(15, round(max(0.0, ratio - 0.3) * 25))
+        if penalty:
+            findings.append(Finding(
+                "warn", f"{unquantified}/{len(achievements)} bullets lack numbers",
+                penalty))
 
     long_limit = 1300 if _is_senior(doc.text) else 900
     if words < 200:
