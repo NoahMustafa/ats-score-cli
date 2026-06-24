@@ -94,9 +94,14 @@ def check_ats(doc: Document) -> AtsResult:
     for s in missing:
         findings.append(Finding("warn", f"missing section: {s}", 8))
 
-    if not EMAIL.search(doc.text):
+    links = [l.lower() for l in doc.links]
+    has_email = bool(EMAIL.search(doc.text)) or any(l.startswith("mailto:") for l in links)
+    has_phone = bool(PHONE.search(doc.text)) or any(
+        l.startswith("tel:") or PHONE.search(l) for l in links
+    )
+    if not has_email:
         findings.append(Finding("fail", "no email found", 10))
-    if not PHONE.search(doc.text):
+    if not has_phone:
         findings.append(Finding("warn", "no phone found", 5))
 
     if not _date_consistent(doc.text):

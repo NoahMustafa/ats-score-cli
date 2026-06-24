@@ -23,6 +23,7 @@ class Document:
     has_columns: bool = False
     has_images: bool = False
     is_scanned: bool = False       # PDF with images but ~no extractable text
+    links: list[str] = field(default_factory=list)   # hyperlink URIs (mailto/tel/http)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -38,6 +39,7 @@ def _extract_pdf(path: Path) -> Document:
     import pdfplumber
 
     parts: list[str] = []
+    links: list[str] = []
     has_tables = has_images = has_columns = False
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
@@ -50,6 +52,7 @@ def _extract_pdf(path: Path) -> Document:
                 has_images = True
             if not has_columns and _looks_multicolumn(page):
                 has_columns = True
+            links.extend(_pdf_links(page))
 
     text = _normalize("\n".join(parts))
     # ponytail: scanned heuristic = images present but almost no text. Naive but
@@ -59,7 +62,30 @@ def _extract_pdf(path: Path) -> Document:
         text=text, fmt="pdf", source=path,
         has_tables=has_tables, has_columns=has_columns,
         has_images=has_images, is_scanned=is_scanned,
+        links=_dedup(links),
     )
+
+
+def _dedup(items: list[str]) -> list[str]:
+    seen: dict[str, None] = {}
+    for i in items:
+        if i:
+            seen.setdefault(i, None)
+    return list(seen)
+
+
+def _pdf_links(page) -> list[str]:
+    out: list[str] = []
+    for h in (page.hyperlinks or []):
+        if h.get("uri"):
+            out.append(h["uri"])
+    for a in (page.annots or []):
+        data = a.get("data")
+        action = data.get("A") if isinstance(data, dict) else None
+        uri = action.get("URI") if isinstance(action, dict) else None
+        if uri:
+            out.append(uri.decode() if isinstance(uri, bytes) else uri)
+    return out
 
 
 def _looks_multicolumn(page) -> bool:
@@ -95,10 +121,15 @@ def _extract_docx(path: Path) -> Document:
     has_images = bool(document.inline_shapes)
     has_columns = _docx_has_columns(document)
 
+    links = [
+        rel.target_ref for rel in document.part.rels.values()
+        if "hyperlink" in rel.reltype
+    ]
+
     return Document(
         text=_normalize("\n".join(paras)), fmt="docx", source=path,
         has_tables=has_tables, has_columns=has_columns,
-        has_images=has_images, is_scanned=False,
+        has_images=has_images, is_scanned=False, links=_dedup(links),
     )
 
 
