@@ -160,7 +160,7 @@ def _render_rich(r: Report) -> str:
         console.print("\n[bold]Skills the parser read[/] [dim](add --jd to match)[/]")
         console.print("  " + ", ".join(r.detected_skills))
 
-    return console.export_text(styles=False)
+    return console.export_text(styles=True).rstrip("\n")
 
 
 def _selfcheck() -> None:
