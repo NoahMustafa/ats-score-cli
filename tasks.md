@@ -54,13 +54,13 @@ Cross-OS rule running through everything: **never hardcode paths or separators, 
 - [x] Self-check (clean=100, bad flagged, date en-dash safe, capitalized not typo) + verified recall on injected typos.
 - Note: dwyl wordlist contains a few noise entries (e.g. "enviroment"), so rare real typos in the list slip through. Acceptable for the precision gain.
 
-## Phase 5 — Similarity (`similarity.py`)
+## Phase 5 — Similarity (`similarity.py`) ✅
 
-- [ ] Load `model2vec` static model from `bundled_path("data/potion-8M")` — **no network**.
-- [ ] `cosine(resume_text, jd_text)` for the fuzzy secondary signal.
-- [ ] **Skill extraction:** skills in JD missing from resume (the actionable output) — match against bundled skill list + JD tokens.
-- [ ] Hybrid JD-match score (overlap + cosine).
-- [ ] Self-check: identical text ≈ 1.0; unrelated text low.
+- [x] Load `model2vec` static model from `bundled_path("data/potion-8M")` — **offline** (HF_HUB_OFFLINE).
+- [x] `cosine(resume, jd)` via model2vec (256-dim static embeddings).
+- [x] **Keyword gap:** clean content keywords (punct-stripped, stopworded); report missing JD terms ranked by JD frequency — the actionable output.
+- [x] Hybrid score = 0.55·cosine + 0.45·coverage.
+- [x] Self-check (identical≈1, missing terms detected, unrelated low) + verified discrimination on real resumes (data-eng 74 > sysadmin 46 > frontend 21 vs a data JD).
 
 ## Phase 6 — Core + report (`core.py`, `report.py`)
 
