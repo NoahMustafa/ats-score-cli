@@ -28,6 +28,7 @@ class Document:
     has_columns: bool = False
     has_images: bool = False
     is_scanned: bool = False       # PDF with images but ~no extractable text
+    drawn_bullets: bool = False    # bullets are vector graphics, not text (ATS risk)
     links: list[str] = field(default_factory=list)   # hyperlink URIs (mailto/tel/http)
     warnings: list[str] = field(default_factory=list)
 
@@ -51,10 +52,10 @@ def _extract_pdf(path: Path) -> Document:
 
     parts: list[str] = []
     links: list[str] = []
-    has_tables = has_images = has_columns = False
+    has_tables = has_images = has_columns = drawn_bullets = False
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
-            text, multicol = _page_text(page)
+            text, multicol, drawn = _page_text(page)
             parts.append(text)
             if page.extract_tables():
                 has_tables = True
@@ -62,6 +63,8 @@ def _extract_pdf(path: Path) -> Document:
                 has_images = True
             if multicol:
                 has_columns = True
+            if drawn:
+                drawn_bullets = True
             links.extend(_pdf_links(page))
 
     text = _normalize("\n".join(parts))
@@ -72,7 +75,7 @@ def _extract_pdf(path: Path) -> Document:
         text=text, fmt="pdf", source=path,
         has_tables=has_tables, has_columns=has_columns,
         has_images=has_images, is_scanned=is_scanned,
-        links=_dedup(links),
+        drawn_bullets=drawn_bullets, links=_dedup(links),
     )
 
 
@@ -98,26 +101,28 @@ def _pdf_links(page) -> list[str]:
     return out
 
 
-def _page_text(page) -> tuple[str, bool]:
+def _page_text(page) -> tuple[str, bool, bool]:
     """Extract page text, de-scrambling a two-column layout if one is detected.
 
-    Returns (text, is_multicolumn). For a single column we read normally; for
-    two columns we read the left column fully, then the right, so the output
-    isn't the line-by-line merge ("SUMMARY PROJECTS") that an ATS would garble.
+    Returns (text, is_multicolumn, has_drawn_bullets). For a single column we
+    read normally; for two columns we read the left column fully, then the
+    right, so the output isn't the line-by-line merge an ATS would garble.
     """
     # ponytail: x_tolerance=2 recovers lost word spacing without over-splitting.
     gutter = _gutter(page)
     if gutter is None:
         text = page.extract_text(x_tolerance=2) or ""
         # Word-exported resumes draw list bullets as vector dots, not text, so
-        # extract_text yields no "•". Reconstruct them so bullets are gradable.
+        # extract_text yields no "•". Reconstruct them so bullets are gradable,
+        # and flag it: a real ATS won't see drawn bullets as list items.
         dots = _bullet_dots(page)
-        if dots and "•" not in text:
+        drawn = bool(dots) and "•" not in text
+        if drawn:
             text = _text_with_bullets(page, dots)
-        return text, False
+        return text, False, drawn
     left = page.crop((0, 0, gutter, page.height)).extract_text(x_tolerance=2) or ""
     right = page.crop((gutter, 0, page.width, page.height)).extract_text(x_tolerance=2) or ""
-    return (left + "\n" + right), True
+    return (left + "\n" + right), True, False
 
 
 def _bullet_dots(page) -> list[tuple[float, float]]:

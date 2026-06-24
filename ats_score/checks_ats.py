@@ -88,6 +88,8 @@ def check_ats(doc: Document) -> AtsResult:
         findings.append(Finding("fail", "multi-column layout", 12))
     if doc.has_images:
         findings.append(Finding("warn", "images present", 5))
+    if doc.drawn_bullets:
+        findings.append(Finding("warn", "bullets are graphics, not text (ATS may miss list structure)", 4))
 
     present = _sections_present(doc.text)
     missing = [s for s in SECTION_KEYWORDS if s not in present]
