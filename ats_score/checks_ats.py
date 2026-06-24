@@ -15,6 +15,16 @@ from .extract import Document
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 PHONE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
 
+# Location: a "City, Region/Country" or "City, ST" pair, or an explicit
+# work-mode word. Searched only in the header zone (top of the resume) so a
+# "Languages, Python" line in a skills section can't masquerade as a location.
+_LOCATION = re.compile(r"\b[A-Z][a-zA-Z.]+,\s*(?:[A-Z]{2}\b|[A-Z][a-z]+)")
+_REMOTE = re.compile(r"\b(remote|hybrid|on-?site|relocat\w*)\b", re.I)
+# Professional profile / portfolio links (text or hyperlink).
+_PROFILE = re.compile(
+    r"linkedin\.com|github\.com|gitlab\.com|behance\.net|dribbble\.com|"
+    r"stackoverflow\.com|kaggle\.com|portfolio", re.I)
+
 # Section -> heading keywords. Contact is handled separately via email/phone,
 # since resumes rarely print a literal "Contact" heading.
 SECTION_KEYWORDS = {
@@ -30,6 +40,9 @@ _DATE_WORD = re.compile(
     re.I,
 )
 _DATE_NUM = re.compile(r"\b\d{1,2}[/-]\d{4}\b")
+# A two-digit apostrophe year ("Jan '24", "'21") is a third style. Mixing any of
+# {word+4-digit, numeric slash, apostrophe-2-digit} reads as inconsistent.
+_DATE_APOS = re.compile(r"'\d{2}\b")
 
 
 @dataclass
@@ -70,10 +83,13 @@ def _sections_present(text: str) -> set[str]:
 
 
 def _date_consistent(text: str) -> bool:
-    has_word = bool(_DATE_WORD.search(text))
-    has_num = bool(_DATE_NUM.search(text))
-    # Mixed "Jan 2024" and "01/2024" styles read as inconsistent.
-    return not (has_word and has_num)
+    styles = sum((
+        bool(_DATE_WORD.search(text)),   # Jan 2024
+        bool(_DATE_NUM.search(text)),    # 01/2024
+        bool(_DATE_APOS.search(text)),   # Jan '24 / '21
+    ))
+    # More than one distinct style across the resume reads as inconsistent.
+    return styles <= 1
 
 
 def check_ats(doc: Document) -> AtsResult:
@@ -106,6 +122,14 @@ def check_ats(doc: Document) -> AtsResult:
     if not has_phone:
         findings.append(Finding("warn", "no phone found", 5))
 
+    header = "\n".join(doc.text.splitlines()[:8])
+    if not (_LOCATION.search(header) or _REMOTE.search(doc.text)):
+        findings.append(Finding("warn", "no location found (city/region or 'Remote')", 3))
+
+    text_and_links = doc.text + " " + " ".join(doc.links)
+    if not _PROFILE.search(text_and_links):
+        findings.append(Finding("warn", "no LinkedIn / portfolio link", 3))
+
     if not _date_consistent(doc.text):
         findings.append(Finding("warn", "inconsistent date formats", 5))
 
@@ -116,7 +140,8 @@ def check_ats(doc: Document) -> AtsResult:
 def _selfcheck() -> None:
     good = Document(
         text=(
-            "Jane Doe\njane@example.com  +1 555 123 4567\n"
+            "Jane Doe\njane@example.com  +1 555 123 4567  Austin, TX\n"
+            "linkedin.com/in/janedoe\n"
             "SUMMARY\nData engineer.\n"
             "WORK EXPERIENCE\nBuilt pipelines Jan 2024 - Mar 2024.\n"
             "EDUCATION\nBSc CS\n"
@@ -126,6 +151,19 @@ def _selfcheck() -> None:
     )
     r = check_ats(good)
     assert r.score >= 90, (r.score, r.summary)
+
+    # Missing location + profile link are each a low-penalty warning.
+    no_loc = Document(
+        text=("Jane Doe\njane@example.com  +1 555 123 4567\n"
+              "SUMMARY\nData engineer.\nWORK EXPERIENCE\nBuilt things Jan 2024.\n"
+              "EDUCATION\nBSc CS\nSKILLS\nPython\n"),
+        fmt="pdf", source=None)  # type: ignore[arg-type]
+    msgs = " ".join(f.message for f in check_ats(no_loc).findings)
+    assert "location" in msgs and "LinkedIn" in msgs, msgs
+
+    # Three mixed date styles flag as inconsistent.
+    assert not _date_consistent("Jan 2024 then 01/2024 then '21")
+    assert _date_consistent("Jan 2024 to Mar 2024")  # one style = fine
 
     scanned = Document(text="", fmt="pdf", source=None, is_scanned=True)  # type: ignore[arg-type]
     assert check_ats(scanned).score <= 60, check_ats(scanned).score

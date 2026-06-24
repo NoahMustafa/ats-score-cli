@@ -71,6 +71,7 @@ _GENERIC = {
     # multi-word phrases like "responsive design"/"data engineering").
     "re", "scale", "source", "design", "engineering", "reporting", "sales",
     "research", "planning", "testing", "writing", "teaching", "training",
+    "data", "management", "development", "systems", "solutions", "operations",
 }
 
 

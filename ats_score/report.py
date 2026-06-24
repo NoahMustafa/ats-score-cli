@@ -43,7 +43,7 @@ def to_dict(r: Report) -> dict:
                     "no_verb": r.content.no_verb},
         "writing": {"score": r.writing.score, "findings": findings(r.writing.findings),
                     "typos": r.writing.typos, "fillers": r.writing.fillers,
-                    "ai_tells": r.writing.ai_tells},
+                    "ai_tells": r.writing.ai_tells, "grammar": r.writing.grammar},
     }
     if r.similarity is not None:
         s = r.similarity

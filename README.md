@@ -52,6 +52,8 @@ Start 100, subtract:
 | Missing a standard section — each of Summary, Experience, Education, Skills | warn | −8 each |
 | **No email** found (text or `mailto:` link) | fail | −10 |
 | No phone found (text or `tel:` link) | warn | −5 |
+| No location found (city/region, or "Remote") | warn | −3 |
+| No LinkedIn / portfolio link | warn | −3 |
 | **Inconsistent date formats** | warn | −5 |
 
 - **Sections** are matched by heading keywords (e.g. Summary/Profile/Objective,
@@ -59,9 +61,11 @@ Start 100, subtract:
   Skills/Competencies/Technologies), case-insensitive. A **Projects** section is
   *not* required (no penalty if absent), but if present its bullets are graded
   like Experience bullets — see Content below.
-- **Date consistency** is intentionally narrow: it flags only when a resume mixes
-  word-style dates (`Jan 2024`) with numeric ones (`01/2024`). It does **not**
-  judge `'21` vs `2021`, month-only vs month-year, or separator style.
+- **Location** is searched only in the header zone (top of the resume), so a
+  `Languages, Python` line in a skills section can't pass as a location.
+- **Date consistency** flags mixing any of three styles in one resume: word
+  (`Jan 2024`), numeric (`01/2024`), and two-digit apostrophe (`'21` / `Jan '24`).
+  It still does not judge separator style or month-only vs month-year.
 
 ### 3. Content quality — are the bullets strong
 
@@ -101,6 +105,10 @@ Start 100, subtract (each category capped so one type can't tank the score):
   (**date ranges like `Jan '21 — Sep '25` are exempt**), emojis, curly quotes,
   tell-tale vocabulary (*delve, tapestry, testament, myriad, pivotal*…), and
   copula-avoidance patterns (*serves as, stands as*). En dashes are never flagged.
+- **Light grammar** (cap −6): a small, high-precision rule pack — repeated words
+  (*the the*) and the pronoun *i* written lowercase. This is **not** a full
+  grammar engine (see "what it does not check"); the rules are tuned to fire on
+  real errors, not on PDF-extraction spacing noise.
 
 ### 5. JD match — only when you pass `--jd`
 
@@ -135,18 +143,21 @@ content or wording matter.
 
 Being honest so the score isn't misleading:
 
-- **No location/address check**, and no requirement for LinkedIn/portfolio links
-  (links are read, but only email/phone are required).
-- **Date consistency is coarse** (word-vs-numeric only; see above).
-- **No grammar checking** beyond spelling — sentence structure and tense aren't
-  judged.
+- **Grammar is a rule pack, not a full engine.** It catches repeated words and
+  lowercase *i*, but not subject–verb agreement, tense consistency, or sentence
+  structure. A full grammar checker (LanguageTool) needs a ~250 MB Java runtime
+  and downloads on first use — incompatible with an offline single binary, and
+  noisy on résumé fragments anyway, so it was deliberately not used.
 - **The skill taxonomy is ESCO-based**, so the JD skill gap is strongest for
-  common professional/tech roles and thinner for niche trades. Occasional
-  mis-segmentation noise (e.g. a generic phrase slipping into the list) is
-  possible.
-- **Drawn-bullet reconstruction is generous-for-grading**, not an ATS simulator:
-  we recover graphic bullets so content can score them, but still flag them as a
-  parsing risk because a real ATS won't.
+  common professional/tech roles and thinner for niche trades — we can't report
+  skills the dataset doesn't contain. Occasional mis-segmentation noise (a
+  generic phrase slipping into the list) is still possible despite filtering.
+- **Drawn-bullet reconstruction is generous-for-grading by design**, not an ATS
+  simulator: we recover graphic bullets so content can score them, but still flag
+  them as a parsing risk because a real ATS won't see them. This is intended
+  behavior, not a defect.
+- **Location detection is heuristic** (header-zone "City, Region" / "Remote"); an
+  unusual location format may not be recognized.
 - **Not a recruiter/batch ranking tool** — it scores one resume at a time.
 
 ---

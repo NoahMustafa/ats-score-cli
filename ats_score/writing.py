@@ -83,6 +83,19 @@ _MONTH = (r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?")
 _DATE_SIDE = rf"(?:{_MONTH}\s+)?'?\d{{2,4}}|{_MONTH}|present|current|now"
 _DATE_RANGE = re.compile(rf"(?:{_DATE_SIDE})\s*[—–-]\s*(?:{_DATE_SIDE})", re.I)
 _CURLY = re.compile(r"[‘’“”]")
+# Grammar (lightweight, high-precision — not a full grammar engine): an
+# accidentally repeated word ("the the", "and and"). Restricted to alphabetic
+# tokens of length >= 2 to avoid numeric/initial noise. A short allow-list keeps
+# the rare legitimate doubling ("had had", "that that").
+# A repeated word ("the the"). Lowercase-only on purpose: a repeated *capitalized*
+# word ("Finance Finance", "Berkeley Berkeley") is almost always a PDF column /
+# heading extraction artifact, not a writing error. Real doublings in prose are
+# function words, which are lowercase. _REPEAT_OK keeps legitimate doublings.
+_REPEAT = re.compile(r"\b([a-z]{2,})\s+\1\b")
+_REPEAT_OK = {"had", "that", "is", "do", "no", "so"}
+# Lowercase "i" used as the pronoun. Bounded so it ignores "i.e.", "ii", "i)",
+# and tech tokens like "i18n" / "i7" (digit-adjacent).
+_LOWER_I = re.compile(r"(?<![A-Za-z0-9.)])i(?![A-Za-z0-9.)'])")
 _EMOJI = re.compile(
     "[\U0001F300-\U0001FAFF\U0001F000-\U0001F0FF\U00002600-\U000027BF⬀-⯿]")
 
@@ -94,10 +107,12 @@ class WritingResult:
     typos: int = 0
     fillers: int = 0
     ai_tells: int = 0
+    grammar: int = 0
 
     @property
     def summary(self) -> str:
-        return f"{self.typos} typos · {self.fillers} fillers · {self.ai_tells} AI-tells"
+        return (f"{self.typos} typos · {self.fillers} fillers · "
+                f"{self.ai_tells} AI-tells · {self.grammar} grammar")
 
 
 @lru_cache(maxsize=1)
@@ -183,6 +198,17 @@ def check_writing(doc: Document) -> WritingResult:
             fillers += 1
             findings.append(Finding("warn", f'hedging "{h}"', 2))
 
+    grammar = 0
+    for ln, line in enumerate(text.splitlines(), start=1):
+        m = _REPEAT.search(line)
+        if m and m.group(1) not in _REPEAT_OK:
+            grammar += 1
+            findings.append(Finding(
+                "warn", f'line {ln}: repeated word "{m.group(1)} {m.group(1)}"', 2))
+        if _LOWER_I.search(line):
+            grammar += 1
+            findings.append(Finding('warn', f'line {ln}: lowercase "i" (use "I")', 2))
+
     ai = 0
     for ln, line in enumerate(text.splitlines(), start=1):
         ll = line.lower()
@@ -204,10 +230,11 @@ def check_writing(doc: Document) -> WritingResult:
                 ai += 1
                 findings.append(Finding("warn", f'line {ln}: "{c}" (copula avoidance)', 2))
 
-    penalty = (min(20, typos * 2) + min(10, fillers * 2) + min(15, ai * 3))
+    penalty = (min(20, typos * 2) + min(10, fillers * 2) + min(15, ai * 3)
+               + min(6, grammar * 2))
     score = max(0, 100 - penalty)
-    return WritingResult(score=score, findings=findings,
-                         typos=typos, fillers=fillers, ai_tells=ai)
+    return WritingResult(score=score, findings=findings, typos=typos,
+                         fillers=fillers, ai_tells=ai, grammar=grammar)
 
 
 def _selfcheck() -> None:
@@ -248,6 +275,14 @@ def _selfcheck() -> None:
     cap = check_writing(Document(text="Built APIs with Python and AWS Lambda.",
                                  fmt="pdf", source=None))  # type: ignore[arg-type]
     assert cap.typos == 0, vars(cap)
+
+    # Repeated word is a grammar flag; legitimate doubling ("had had") is not.
+    rep = check_writing(Document(text="Led the the migration to cloud.",
+                                 fmt="pdf", source=None))  # type: ignore[arg-type]
+    assert rep.grammar == 1, vars(rep)
+    ok = check_writing(Document(text="We had had three outages that quarter.",
+                                fmt="pdf", source=None))  # type: ignore[arg-type]
+    assert ok.grammar == 0, vars(ok)
 
     print("writing selfcheck ok")
 
