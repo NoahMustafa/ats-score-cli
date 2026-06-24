@@ -28,6 +28,12 @@ _CATEGORY = re.compile(r"^[A-Za-z][\w &/+\-]{0,30}:\s")
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 _VERSION = re.compile(r"\b\d+(?:\.\d+)+\b")
 _DIGIT = re.compile(r"\d")
+# Unambiguous magnitude words that count as quantification ("zero critical
+# vulnerabilities", "hundreds of records"). Deliberately excludes one-ten,
+# which are too noisy ("one of the team").
+_WORDNUM = re.compile(
+    r"\b(?:zero|dozens?|hundreds?|thousands?|millions?|billions?|"
+    r"doubled|tripled|halved)\b", re.I)
 
 # First-word weak verbs (duty-listing, not achievement).
 WEAK_VERBS = {
@@ -88,6 +94,8 @@ def _bullets(text: str) -> list[tuple[int, str, bool]]:
 
 
 def _is_quantified(bullet: str) -> bool:
+    if _WORDNUM.search(bullet):
+        return True
     s = _VERSION.sub(" ", bullet)
     s = _YEAR.sub(" ", s)
     return bool(_DIGIT.search(s))
@@ -183,6 +191,16 @@ def _selfcheck() -> None:
         text=base + "• Built a data pipeline in 2024 using Python 3.11.",
         fmt="pdf", source=None))  # type: ignore[arg-type]
     assert yr.unquantified == 1, yr.unquantified
+
+    # Magnitude words count as quantified; "one of the" does not.
+    wn = check_content(Document(
+        text=base + "• Achieved zero critical vulnerabilities across the farm.",
+        fmt="pdf", source=None))  # type: ignore[arg-type]
+    assert wn.unquantified == 0, wn.unquantified
+    one = check_content(Document(
+        text=base + "• Was one of the engineers on the team.",
+        fmt="pdf", source=None))  # type: ignore[arg-type]
+    assert one.unquantified == 1, one.unquantified
 
     # Single weak verb anywhere at the start.
     wv = check_content(Document(
