@@ -15,6 +15,16 @@ from .checks_ats import Finding, _is_heading
 # Headings whose bullets are achievements (verb/quantification rules apply).
 # Bullets under Skills/Summary/Strengths/etc. are exempt.
 _ACHIEVEMENT_HEADINGS = ("experience", "employment", "work", "project")
+# Other top-level section headings. We only flip the achievement-section flag on
+# a *known* section heading — a job title / company line ("Paragone One
+# Internship") also looks like a heading but must NOT end the experience section,
+# or its bullets go ungraded.
+_OTHER_SECTIONS = (
+    "education", "skills", "summary", "profile", "objective", "about",
+    "certification", "certificate", "award", "honor", "language", "interest",
+    "hobbies", "reference", "contact", "competenc", "technolog", "publication",
+    "volunteer", "course", "training", "achievement",
+)
 
 # Bullet glyphs + numbered list markers, stripped from the line start.
 _BULLET = re.compile(r"^\s*(?:[•▪‣⁃◦\-\*·–]|\d+[.)])\s+")
@@ -82,19 +92,34 @@ class ContentResult:
 
 
 def _bullets(text: str) -> list[tuple[int, str, bool]]:
-    """Return (line_no, bullet_text, under_experience_section)."""
-    out: list[tuple[int, str, bool]] = []
+    """Return (line_no, bullet_text, under_experience_section).
+
+    A bullet that wraps across lines is merged into one logical bullet: the
+    first word still drives the action-verb check, and the full text drives the
+    quantification check (a number in the wrapped part must still count).
+    """
+    out: list[list] = []
     in_experience = False
+    cur: int | None = None   # index of the bullet currently open for wrapping
     for i, line in enumerate(text.splitlines(), start=1):
         # Bullet check first: a short bullet ("• Hi") can otherwise look like a
         # heading and get swallowed.
         if _BULLET.match(line):
-            out.append((i, _BULLET.sub("", line).strip(), in_experience))
-            continue
-        if _is_heading(line):
+            out.append([i, _BULLET.sub("", line).strip(), in_experience])
+            cur = len(out) - 1
+        elif _is_heading(line):
+            cur = None   # a section/title heading closes the open bullet
             low = line.lower()
-            in_experience = any(k in low for k in _ACHIEVEMENT_HEADINGS)
-    return out
+            if any(k in low for k in _ACHIEVEMENT_HEADINGS):
+                in_experience = True
+            elif any(k in low for k in _OTHER_SECTIONS):
+                in_experience = False
+            # else: a job-title / company line — keep the current section state
+            # so its bullets stay graded.
+        elif cur is not None and line.strip():
+            # A plain line right after a bullet is its wrapped continuation.
+            out[cur][1] += " " + line.strip()
+    return [(ln, txt, exp) for ln, txt, exp in out]
 
 
 def _is_quantified(bullet: str) -> bool:
