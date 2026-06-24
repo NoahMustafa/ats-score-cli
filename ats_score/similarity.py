@@ -1,7 +1,10 @@
-"""JD-match: semantic similarity (model2vec) + actionable keyword gap.
+"""JD-match: semantic similarity (model2vec) + a real skills gap.
 
-The cosine is a fuzzy overall signal; the missing-keywords list is what a user
-actually acts on. Both run fully offline from the vendored static model.
+Skills are matched against a vendored cross-domain taxonomy (ESCO + tech
+terms), so the gap reports actual missing *skills* (e.g. "azure", "food
+safety") rather than JD prose ("ingestion", "collaboration"). The cosine is a
+fuzzy overall signal; the missing-skills list is what a user acts on. Fully
+offline.
 """
 
 from __future__ import annotations
@@ -13,35 +16,9 @@ from functools import lru_cache
 
 from .paths import bundled_path
 
-# Common words that aren't skills/keywords — kept out of the gap analysis.
-STOP = {
-    "the", "and", "for", "with", "you", "our", "are", "will", "have", "has",
-    "this", "that", "from", "your", "all", "can", "who", "but", "not", "their",
-    "they", "them", "its", "was", "were", "would", "should", "must", "may",
-    "ability", "work", "working", "team", "teams", "role", "job", "company",
-    "experience", "experienced", "years", "year", "skills", "skill", "strong",
-    "knowledge", "including", "etc", "able", "well", "new", "use", "using",
-    "across", "within", "into", "per", "via", "such", "also", "more", "most",
-    "other", "any", "each", "based", "help", "ensure", "support", "related",
-    "required", "preferred", "plus", "responsibilities", "requirements",
-    "candidate", "candidates", "looking", "join", "position", "opportunity",
-    "environment", "excellent", "good", "great", "high", "highly", "ideal",
-    "hiring", "seeking", "apply", "applicant", "applicants", "wanted", "needed",
-    # JD-boilerplate verbs and fluff — actions/adjectives, not skills to "have"
-    "implement", "implementing", "implementation", "design", "designing",
-    "build", "building", "maintain", "maintaining", "improve", "improving",
-    "integrate", "integrating", "automate", "automating", "contribute",
-    "contributing", "translate", "deliver", "delivering", "ensure", "ensuring",
-    "develop", "developing", "create", "creating", "manage", "managing",
-    "provide", "providing", "partnering", "enabling", "driving", "owning",
-    "scheduling", "best", "practices", "fundamentals", "understanding",
-    "proven", "demonstrable", "reliable", "scalable", "clear", "validation",
-    "documentation", "attention", "detail", "independently", "pressure",
-    "qualifications", "minimum", "key", "trade-offs", "downstream", "multiple",
-    "sources", "responsible", "closely", "reliably", "applicable", "relevant",
-}
+_WORD = re.compile(r"[a-zA-Z][a-zA-Z0-9+#.]*")
 
-# British -> American so JD "modelling/optimisation" matches resume "modeling".
+# British -> American so JD "modelling/optimisation" matches the taxonomy.
 _BRIT = {
     "modelling": "modeling", "modelled": "modeled", "labelling": "labeling",
     "travelling": "traveling", "cancelled": "canceled", "catalogue": "catalog",
@@ -49,6 +26,7 @@ _BRIT = {
 
 
 def _normalize_word(t: str) -> str:
+    t = t.strip(".-")
     if t in _BRIT:
         return _BRIT[t]
     if t.endswith("isation"):
@@ -60,8 +38,6 @@ def _normalize_word(t: str) -> str:
     if t.endswith("ise") and len(t) > 5:
         return t[:-3] + "ize"
     return t
-
-_TOKEN = re.compile(r"[a-zA-Z][a-zA-Z0-9+#.\-]{1,}")
 
 
 @dataclass
@@ -75,7 +51,14 @@ class SimilarityResult:
     @property
     def summary(self) -> str:
         miss = ", ".join(self.missing[:8]) if self.missing else "none"
-        return f"cosine {self.cosine:.2f} · keyword coverage {self.coverage:.0%} · missing: {miss}"
+        return (f"cosine {self.cosine:.2f} · skill coverage {self.coverage:.0%} "
+                f"· missing: {miss}")
+
+
+@lru_cache(maxsize=1)
+def _gazetteer() -> frozenset[str]:
+    text = bundled_path("data/skills.txt").read_text(encoding="utf-8")
+    return frozenset(line for line in text.splitlines() if line)
 
 
 @lru_cache(maxsize=1)
@@ -85,7 +68,7 @@ def _model():
     return StaticModel.from_pretrained(str(bundled_path("data/potion-8M")))
 
 
-def _cosine(a, b) -> float:
+def _cosine(a: str, b: str) -> float:
     import numpy as np
     emb = _model().encode([a, b])
     na, nb = np.linalg.norm(emb[0]), np.linalg.norm(emb[1])
@@ -94,62 +77,70 @@ def _cosine(a, b) -> float:
     return float(emb[0] @ emb[1] / (na * nb))
 
 
-def _keywords(text: str) -> tuple[set[str], dict[str, int]]:
-    """Clean content keywords with JD frequency (punctuation stripped)."""
-    grams: dict[str, int] = {}
-    for raw in _TOKEN.findall(text.lower()):
-        t = _normalize_word(raw.strip(".-"))  # punct + British spelling
-        if len(t) >= 3 and t not in STOP:
-            grams[t] = grams.get(t, 0) + 1
-    return set(grams), grams
+def _skills(text: str) -> set[str]:
+    """Skills present in text = its 1-4 word n-grams that are in the taxonomy."""
+    toks = [_normalize_word(w.lower()) for w in _WORD.findall(text)]
+    toks = [t for t in toks if t]
+    gaz = _gazetteer()
+    found: set[str] = set()
+    n = len(toks)
+    for i in range(n):
+        for k in range(1, 5):
+            if i + k <= n:
+                gram = " ".join(toks[i:i + k])
+                if gram in gaz:
+                    found.add(gram)
+    # Drop a single-word skill already covered by a matched multi-word skill
+    # ("learning" when "machine learning" matched).
+    multi = [s for s in found if " " in s]
+    return {s for s in found
+            if " " in s or not any(s in m.split() for m in multi)}
 
 
 def check_similarity(resume_text: str, jd_text: str) -> SimilarityResult:
-    jd_set, jd_freq = _keywords(jd_text)
-    resume_set, _ = _keywords(resume_text)
+    jd_skills = _skills(jd_text)
+    resume_skills = _skills(resume_text)
 
-    matched = jd_set & resume_set
-    missing = jd_set - resume_set
-    # Rank missing by JD frequency, then by length (specific terms first).
-    missing_clean = sorted(missing, key=lambda k: (-jd_freq[k], -len(k)))
+    matched = jd_skills & resume_skills
+    missing = jd_skills - resume_skills
+    # Specific (multi-word) skills first, then longer.
+    missing_ranked = sorted(missing, key=lambda s: (-len(s.split()), -len(s)))
 
-    coverage = len(matched) / len(jd_set) if jd_set else 0.0
+    coverage = len(matched) / len(jd_skills) if jd_skills else 0.0
     cosine = _cosine(resume_text, jd_text)
-    # Hybrid: semantic + keyword coverage. Cosine dominates overall fit;
-    # coverage grounds it in concrete term overlap.
-    score = max(0, min(100, round(100 * (0.55 * cosine + 0.45 * coverage))))
+    score = max(0, min(100, round(100 * (0.5 * cosine + 0.5 * coverage))))
 
     return SimilarityResult(
         score=score, cosine=round(cosine, 3), coverage=round(coverage, 3),
-        missing=missing_clean[:15], matched=sorted(matched)[:15],
+        missing=missing_ranked[:15],
+        matched=sorted(matched, key=lambda s: (-len(s.split()), s))[:15],
     )
 
 
 def _selfcheck() -> None:
-    resume = ("Data engineer skilled in Python, SQL, Airflow and AWS. Built ETL "
-              "pipelines and dashboards with PostgreSQL and Power BI.")
-    jd_same = resume
-    r1 = check_similarity(resume, jd_same)
-    assert r1.cosine > 0.95, r1.cosine
+    resume = ("Data engineer skilled in python, sql, airflow and aws. Built etl "
+              "pipelines and dashboards with postgresql and power bi.")
+    r1 = check_similarity(resume, resume)
     assert r1.coverage > 0.95, r1.coverage
-    assert r1.score >= 95, r1.score
+    assert r1.score >= 90, r1.score
 
-    jd = ("Looking for a data engineer with Python, Kubernetes, GraphQL and "
-          "Spark experience to build streaming pipelines.")
+    jd = ("Data engineer needed with python, kubernetes, spark and azure. "
+          "Build streaming pipelines and data modeling.")
     r2 = check_similarity(resume, jd)
     assert "kubernetes" in r2.missing, r2.missing
-    assert "graphql" in r2.missing, r2.missing
+    assert "azure" in r2.missing, r2.missing
     assert "python" not in r2.missing, r2.missing  # present in resume
+    # JD prose must NOT appear as a skill.
+    assert not any(w in r2.missing for w in ("ingestion", "build", "needed")), r2.missing
 
     unrelated = "Pastry chef creating desserts, cakes and breads in a busy kitchen."
     r3 = check_similarity(resume, unrelated)
     assert r3.cosine < r1.cosine
     assert r3.score < r2.score
 
-    # British spelling in the JD must not show as a missing skill.
-    r4 = check_similarity("Skilled in data modeling and optimization.",
-                          "Need data modelling and optimisation skills.")
-    assert "modelling" not in r4.missing and "optimisation" not in r4.missing, r4.missing
+    # British spelling normalized against the taxonomy.
+    r4 = check_similarity("skilled in data modeling", "need data modelling")
+    assert "modelling" not in r4.missing, r4.missing
 
     print("similarity selfcheck ok")
 

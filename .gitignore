@@ -29,3 +29,6 @@ tests/**/*.docx
 kaggle_files.csv
 selected_files.txt
 batch_results.txt
+
+# Raw taxonomy download (processed into data/skills.txt)
+esco_skills_raw.csv
