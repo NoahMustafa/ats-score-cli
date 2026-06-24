@@ -56,7 +56,9 @@ Start 100, subtract:
 
 - **Sections** are matched by heading keywords (e.g. Summary/Profile/Objective,
   Experience/Employment/Work History, Education/Academic,
-  Skills/Competencies/Technologies), case-insensitive.
+  Skills/Competencies/Technologies), case-insensitive. A **Projects** section is
+  *not* required (no penalty if absent), but if present its bullets are graded
+  like Experience bullets — see Content below.
 - **Date consistency** is intentionally narrow: it flags only when a resume mixes
   word-style dates (`Jan 2024`) with numeric ones (`01/2024`). It does **not**
   judge `'21` vs `2021`, month-only vs month-year, or separator style.
