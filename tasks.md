@@ -44,13 +44,15 @@ Cross-OS rule running through everything: **never hardcode paths or separators, 
 - [x] Returns sub-score + per-line findings.
 - [x] Self-check (covers each fix) + verified on 6 real resumes.
 
-## Phase 4 — Writing (`writing.py`)
+## Phase 4 — Writing (`writing.py`) ✅
 
-- [ ] **Spell:** `pyspellchecker` → `unknown()` + `correction()`. Report `line N: wrong → suggestion`.
-- [ ] Build bundled **tech/skill allowlist** + proper-name skip so jargon isn't flagged. (Without this the check is noise.)
-- [ ] **AI-tells** (bundled wordlists, regex): em/en dash, ` -- `, emojis (unicode ranges), curly quotes, AI vocab, copula avoidance, filler, hedging. Each → line + text + fix.
-- [ ] Wordlist data files under `ats_score/data/`, loaded via `bundled_path()`.
-- [ ] Self-check: known-bad string flags expected typos/tells; clean string flags nothing.
+- [x] **Spell:** `pyspellchecker` (distance=2) + vendored 370k-word English list (`data/words_alpha.txt`) → high precision. Report `line N: "wrong" → suggestion`.
+- [x] Noise control: skip capitalized words (names/companies/tech), URLs, emails, hyphenated tokens; tolerate plural/verb/British morphology; tech-compound allowlist. Result: 0 false-positive typos across 9 sample resumes.
+- [x] De-hyphenate line-break wraps in extraction ("third-\nparty" → "third-party"), keeping the hyphen so real compounds survive.
+- [x] **AI-tells** (regex + conservative wordlists): em dash / ` -- `, emojis, curly quotes, AI vocab (excludes common resume words), copula avoidance. En dash NOT flagged (date ranges).
+- [x] **Filler + hedging** phrases with suggested fixes.
+- [x] Self-check (clean=100, bad flagged, date en-dash safe, capitalized not typo) + verified recall on injected typos.
+- Note: dwyl wordlist contains a few noise entries (e.g. "enviroment"), so rare real typos in the list slip through. Acceptable for the precision gain.
 
 ## Phase 5 — Similarity (`similarity.py`)
 
