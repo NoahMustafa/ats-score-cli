@@ -22,6 +22,9 @@ Thumbs.db
 # Resume corpus / fixtures — PII + bulk, never commit
 tests/**/*.pdf
 tests/**/*.docx
+tests/**/*.jsonl
+tests/**/*.csv
+tests/.aither/
 *.pdf
 *.docx
 
