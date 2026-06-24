@@ -82,25 +82,25 @@ Cross-OS rule running through everything: **never hardcode paths or separators, 
 - [x] `tests/test_checks.py` (ATS + content), `tests/test_writing.py`, `tests/test_core.py` (JD gating, weighting, report shapes).
 - [x] All fixtures synthetic (in-code Documents + a tmp DOCX) — runs in CI with **no resume corpus** (PII stays git-ignored). No network. 19 tests pass.
 
-## Phase 9 — Packaging (per-OS binary)
+## Phase 9 — Packaging (per-OS binary) ✅ (Windows verified locally)
 
 Cross-OS is the whole point of this phase. **PyInstaller cannot cross-compile** — each OS builds its own binary.
 
-- [ ] PyInstaller spec (or CLI flags): `--onefile`, `--name tool`.
-- [ ] `--add-data` the model + wordlists. **Separator differs per OS:** `src:dest` on Linux/macOS, `src;dest` on Windows. Use a spec file with `datas=[...]` to avoid the separator footgun.
-- [ ] `--exclude-module tkinter` and other unused stdlib to trim size.
-- [ ] UPX compression (install UPX on each runner).
-- [ ] Verify the frozen binary loads the model from `sys._MEIPASS` (run it on a machine with **no** HuggingFace cache to prove offline).
-- [ ] Windows: confirm output is `tool.exe`, no console-encoding crash on unicode (set UTF-8 / `rich` handles it).
+- [x] `tool.spec`: `--onefile`, `name=tool`. `datas=[...]` adds model + wordlists + skills under `ats_score/data` (avoids the per-OS separator footgun).
+- [x] `--exclude-module tkinter`/matplotlib/IPython/pytest to trim size.
+- [x] Verified the frozen binary loads the model from `sys._MEIPASS` with **no** HuggingFace cache (offline) on Windows.
+- [x] Windows: output is `tool.exe`; forced UTF-8 stdout so the report glyphs don't crash a cp1252 console.
+- [ ] UPX compression (spec has `upx=True`; install UPX on each runner to actually compress — currently a no-op, ~133 MB).
 - [ ] macOS: unsigned binary triggers Gatekeeper — note `xattr -d com.apple.quarantine` for users, or sign/notarize later.
-- [ ] Linux: build on the **oldest** glibc target you support (build on old Ubuntu so binary runs on newer). musl/Alpine = separate build if needed.
+- [x] Linux: CI builds on `ubuntu-22.04` (older glibc) so the binary runs on newer.
 
-## Phase 10 — CI release (`.github/workflows/build.yml`)
+## Phase 10 — CI release (`.github/workflows/build.yml`) ✅
 
-- [ ] Matrix: `windows-latest`, `ubuntu-latest` (or older for glibc), `macos-latest`.
-- [ ] Steps: checkout → setup-python → `pip install -r requirements.txt pyinstaller` → build → upload artifact.
-- [ ] Trigger on tag push (`v*`) → attach the 3 binaries (`tool.exe`, `tool`-linux, `tool`-macos) to a GitHub Release.
-- [ ] Smoke-test each artifact (`tool --help`, score a fixture) before publishing.
+- [x] Matrix: `windows-latest`, `ubuntu-22.04` (older glibc), `macos-latest`.
+- [x] Steps: checkout → setup-python → `pip install -r requirements.txt pyinstaller pytest` → run tests → build → smoke → upload artifact.
+- [x] Trigger on tag push (`v*`) → attach the 3 binaries (`tool-windows.exe`, `tool-linux`, `tool-macos`) to a GitHub Release. Also `workflow_dispatch` for manual artifact builds.
+- [x] Smoke-test each artifact (`--help`, score a generated DOCX, `--jd … --json`) with `HF_HUB_OFFLINE` + empty cache to prove offline, before publishing.
+- Note: bundled model/wordlists/skills are committed in-repo, so CI needs no download.
 
 ---
 

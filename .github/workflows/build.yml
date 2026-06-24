@@ -1,0 +1,91 @@
+name: build
+
+# Build the single-file binary on each OS (PyInstaller can't cross-compile),
+# smoke-test it, and on a version tag attach all three to a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:   # allow manual runs to produce artifacts without a tag
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: tool-windows.exe
+            binary: dist/tool.exe
+          # Build on the oldest supported glibc so the binary runs on newer too.
+          - os: ubuntu-22.04
+            artifact: tool-linux
+            binary: dist/tool
+          - os: macos-latest
+            artifact: tool-macos
+            binary: dist/tool
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+      - name: Build binary
+        run: pyinstaller tool.spec --noconfirm --clean
+
+      - name: Smoke test (offline)
+        shell: bash
+        env:
+          # Prove the bundled model loads without any HuggingFace cache.
+          HF_HUB_OFFLINE: "1"
+          HF_HOME: "${{ runner.temp }}/no_hf_cache"
+        run: |
+          "${{ matrix.binary }}" --help
+          python - <<'PY'
+          import docx
+          d = docx.Document()
+          d.add_paragraph("Jane Doe  jane@example.com  +1 555 123 4567  Austin, TX")
+          d.add_paragraph("linkedin.com/in/janedoe")
+          d.add_paragraph("SUMMARY"); d.add_paragraph("Data engineer.")
+          d.add_paragraph("WORK EXPERIENCE")
+          for n in (15, 20, 25, 30):
+              d.add_paragraph(f"Increased revenue by {n}% across 3 regions.")
+          d.add_paragraph("EDUCATION"); d.add_paragraph("BSc Computer Science")
+          d.add_paragraph("TECHNICAL SKILLS"); d.add_paragraph("Python, SQL, AWS")
+          d.save("smoke.docx")
+          PY
+          "${{ matrix.binary }}" smoke.docx
+          "${{ matrix.binary }}" smoke.docx --jd "python sql aws kubernetes" --json
+
+      - name: Rename for release
+        shell: bash
+        run: cp "${{ matrix.binary }}" "${{ matrix.artifact }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create the release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
