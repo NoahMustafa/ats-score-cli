@@ -74,6 +74,14 @@ COPULA = ("serves as", "stands as", "boasts a", "boasts an", "acts as a")
 # Em dash + double/spaced hyphen used as punctuation. En dash (–) is NOT
 # flagged: on resumes it almost always means a date range ("2023 – 2024").
 _EMDASH = re.compile(r"—|\s--\s|\s—\s")
+# A dash between two dates is a range separator, not an AI tell — and people use
+# em dashes for it as often as en dashes. A "date side" is a month, a year, a
+# month+year, or present/now, so this covers "Jan '21 — Sep '25", "2023 —
+# Present", and "Aug — Sep". Both sides must be date-like, so a prose em dash
+# ("the team — delivering results") is still flagged.
+_MONTH = (r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?")
+_DATE_SIDE = rf"(?:{_MONTH}\s+)?'?\d{{2,4}}|{_MONTH}|present|current|now"
+_DATE_RANGE = re.compile(rf"(?:{_DATE_SIDE})\s*[—–-]\s*(?:{_DATE_SIDE})", re.I)
 _CURLY = re.compile(r"[‘’“”]")
 _EMOJI = re.compile(
     "[\U0001F300-\U0001FAFF\U0001F000-\U0001F0FF\U00002600-\U000027BF⬀-⯿]")
@@ -178,7 +186,7 @@ def check_writing(doc: Document) -> WritingResult:
     ai = 0
     for ln, line in enumerate(text.splitlines(), start=1):
         ll = line.lower()
-        if _EMDASH.search(line):
+        if _EMDASH.search(line) and not _DATE_RANGE.search(line):
             ai += 1
             findings.append(Finding("warn", f"line {ln}: em dash / double hyphen", 3))
         if _CURLY.search(line):
@@ -225,6 +233,16 @@ def _selfcheck() -> None:
     dr = check_writing(Document(text="Engineer 2023 – 2024 built systems.",
                                 fmt="pdf", source=None))  # type: ignore[arg-type]
     assert dr.ai_tells == 0, dr.ai_tells
+
+    # Em-dash date ranges (month+year, month-only, to-present) are separators,
+    # not AI tells.
+    for rng in ("Jan '21 — Sep '25", "Project Aug — Sep", "Engineer 2023 — Present"):
+        rr = check_writing(Document(text=rng, fmt="pdf", source=None))  # type: ignore[arg-type]
+        assert rr.ai_tells == 0, (rng, rr.ai_tells)
+    # But a prose em dash is still an AI tell.
+    pe = check_writing(Document(text="The team — delivering great results.",
+                                fmt="pdf", source=None))  # type: ignore[arg-type]
+    assert pe.ai_tells == 1, pe.ai_tells
 
     # "Python" capitalized is not a typo.
     cap = check_writing(Document(text="Built APIs with Python and AWS Lambda.",
