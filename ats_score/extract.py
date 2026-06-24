@@ -6,8 +6,12 @@ Returns plain text plus the layout flags the ATS-readiness check needs
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# Unmappable glyphs pdfplumber emits for icon/symbol fonts.
+_CID = re.compile(r"\(cid:\d+\)")
 
 
 @dataclass
@@ -23,8 +27,11 @@ class Document:
 
 
 def _normalize(text: str) -> str:
-    # Unify line endings so every downstream check sees \n only.
-    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    # Unify line endings so every downstream check sees \n only, and drop
+    # unmappable icon-font glyphs that would otherwise read as spell errors.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = _CID.sub("", text)
+    return text.strip()
 
 
 def _extract_pdf(path: Path) -> Document:
@@ -34,7 +41,9 @@ def _extract_pdf(path: Path) -> Document:
     has_tables = has_images = has_columns = False
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
-            parts.append(page.extract_text() or "")
+            # ponytail: x_tolerance=2 (default 3) recovers lost word spacing in
+            # tightly-kerned resume PDFs without over-splitting normal words.
+            parts.append(page.extract_text(x_tolerance=2) or "")
             if page.extract_tables():
                 has_tables = True
             if page.images:
