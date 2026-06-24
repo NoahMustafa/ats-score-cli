@@ -10,6 +10,13 @@ from .report import render, render_json
 
 
 def main(argv: list[str] | None = None) -> int:
+    # The report uses ✗/•/box-drawing chars; a legacy Windows console (cp1252)
+    # crashes on them. Force UTF-8 so the binary works on a stock terminal.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except Exception:
+        pass
+
     parser = argparse.ArgumentParser(
         prog="ats-score",
         description="Score a resume for ATS-readiness, content, and writing. "
