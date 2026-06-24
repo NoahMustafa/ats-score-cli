@@ -18,3 +18,14 @@ dist/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Resume corpus / fixtures — PII + bulk, never commit
+tests/**/*.pdf
+tests/**/*.docx
+*.pdf
+*.docx
+
+# Dataset acquisition scratch + batch output
+kaggle_files.csv
+selected_files.txt
+batch_results.txt
