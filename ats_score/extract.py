@@ -47,14 +47,13 @@ def _extract_pdf(path: Path) -> Document:
     has_tables = has_images = has_columns = False
     with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
-            # ponytail: x_tolerance=2 (default 3) recovers lost word spacing in
-            # tightly-kerned resume PDFs without over-splitting normal words.
-            parts.append(page.extract_text(x_tolerance=2) or "")
+            text, multicol = _page_text(page)
+            parts.append(text)
             if page.extract_tables():
                 has_tables = True
             if page.images:
                 has_images = True
-            if not has_columns and _looks_multicolumn(page):
+            if multicol:
                 has_columns = True
             links.extend(_pdf_links(page))
 
@@ -92,20 +91,76 @@ def _pdf_links(page) -> list[str]:
     return out
 
 
-def _looks_multicolumn(page) -> bool:
-    # ponytail: heuristic. Split words into left/right halves of the page; if
-    # both halves are well populated and there's a clear vertical gutter, call
-    # it multi-column. Upgrade to a clustering pass if false positives bite.
-    words = page.extract_words() or []
-    if len(words) < 30:
-        return False
-    mid = page.width / 2
-    left = sum(1 for w in words if w["x1"] < mid)
-    right = sum(1 for w in words if w["x0"] > mid)
+def _page_text(page) -> tuple[str, bool]:
+    """Extract page text, de-scrambling a two-column layout if one is detected.
+
+    Returns (text, is_multicolumn). For a single column we read normally; for
+    two columns we read the left column fully, then the right, so the output
+    isn't the line-by-line merge ("SUMMARY PROJECTS") that an ATS would garble.
+    """
+    # ponytail: x_tolerance=2 recovers lost word spacing without over-splitting.
+    gutter = _gutter(page)
+    if gutter is None:
+        return (page.extract_text(x_tolerance=2) or ""), False
+    left = page.crop((0, 0, gutter, page.height)).extract_text(x_tolerance=2) or ""
+    right = page.crop((gutter, 0, page.width, page.height)).extract_text(x_tolerance=2) or ""
+    return (left + "\n" + right), True
+
+
+def _gutter(page) -> float | None:
+    """X of a clear vertical column gutter, or None for a single column.
+
+    Bins word centres across the page; if a near-empty vertical band sits in
+    the middle with well-populated content on both sides, that band is the
+    gutter between two columns.
+    """
+    return _detect_gutter(page.extract_words() or [], page.width)
+
+
+def _detect_gutter(words: list[dict], w: float) -> float | None:
+    """Pure column-gutter detection over word boxes (testable without a PDF)."""
+    if len(words) < 40:
+        return None
+    nbins = 30
+    binw = w / nbins
+    counts = [0] * nbins
+    for wd in words:
+        c = (wd["x0"] + wd["x1"]) / 2
+        counts[min(nbins - 1, int(c // binw))] += 1
+
+    lo, hi = int(nbins * 0.35), int(nbins * 0.65)
+    min_count, idx = min((counts[i], i) for i in range(lo, hi + 1))
+    left = sum(counts[:idx])
+    right = sum(counts[idx + 1:])
     total = len(words)
-    # both sides carry real content, and few words straddle the centre gutter
-    straddle = sum(1 for w in words if w["x0"] < mid < w["x1"])
-    return left > total * 0.3 and right > total * 0.3 and straddle < total * 0.05
+    peak = max(counts)
+    gx = (idx + 0.5) * binw
+
+    # Candidate gutter: near-empty band vs the densest column, content on both
+    # sides. (Columns can be lopsided, so the side gate is low.)
+    if not (min_count <= 0.15 * peak and left > total * 0.15 and right > total * 0.15):
+        return None
+
+    # Confirm a real column boundary, not a single column with a sparse middle
+    # or a line-wrap. A true second column has its OWN lines: count lines living
+    # entirely left vs entirely right of gx. Both sides must carry real lines.
+    lines = _group_lines(words)
+    left_only = sum(1 for ws in lines if all(w["x1"] < gx for w in ws))
+    right_only = sum(1 for ws in lines if all(w["x0"] > gx for w in ws))
+    need = max(3, int(len(lines) * 0.1))
+    if left_only >= need and right_only >= need:
+        return gx
+    return None
+
+
+def _group_lines(words: list[dict], tol: float = 3.0) -> list[list[dict]]:
+    lines: list[list[dict]] = []
+    for w in sorted(words, key=lambda w: w["top"]):
+        if lines and abs(w["top"] - lines[-1][0]["top"]) <= tol:
+            lines[-1].append(w)
+        else:
+            lines.append([w])
+    return lines
 
 
 def _extract_docx(path: Path) -> Document:
@@ -204,6 +259,18 @@ def _selfcheck() -> None:
 
     assert _normalize("Java​Script﻿") == "JavaScript", "zero-width strip"
     assert _normalize("a\x0d\x0ab") == "a\nb"
+
+    # Column detection on synthetic word boxes (no PDF needed).
+    def word(x0, x1, top):
+        return {"x0": x0, "x1": x1, "top": top}
+
+    # Offset, unequal-length columns (like a real layout, not aligned rows).
+    two_col = ([word(30, 120, t) for t in range(0, 400, 12)]       # left column
+               + [word(360, 450, t) for t in range(6, 250, 12)])   # right column
+    assert _detect_gutter(two_col, 600) is not None, "missed two columns"
+
+    one_col = [word(30, 500, t) for t in range(0, 600, 12)]       # full-width lines
+    assert _detect_gutter(one_col, 600) is None, "false-split single column"
 
     print("extract selfcheck ok")
 
