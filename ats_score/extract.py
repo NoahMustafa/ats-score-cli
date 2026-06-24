@@ -15,6 +15,8 @@ _CID = re.compile(r"\(cid:\d+\)")
 # Zero-width / BOM chars (templates like Enhancv inject these; they silently
 # break keyword and spell matching, e.g. a zero-width space inside "JavaScript").
 _ZEROWIDTH = re.compile("[​‌‍⁠﻿]")
+# Hyphen + newline between letters = a word wrapped across a line break.
+_HYPHENBREAK = re.compile(r"(?<=[a-zA-Z])-\n(?=[a-zA-Z])")
 
 
 @dataclass
@@ -36,6 +38,11 @@ def _normalize(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = _CID.sub("", text)
     text = _ZEROWIDTH.sub("", text)
+    # Pull a hyphen-line-break back onto one line, keeping the hyphen:
+    # "third-\nparty" -> "third-party" (real compound preserved), "cor-\nporate"
+    # -> "cor-porate" (skipped by the speller). Dropping the hyphen instead would
+    # wrongly fuse genuine compounds ("third-party" -> "thirdparty").
+    text = _HYPHENBREAK.sub("-", text)
     return text.strip()
 
 
@@ -259,6 +266,7 @@ def _selfcheck() -> None:
 
     assert _normalize("Java​Script﻿") == "JavaScript", "zero-width strip"
     assert _normalize("a\x0d\x0ab") == "a\nb"
+    assert _normalize("third-\nparty") == "third-party", "hyphen-break"
 
     # Column detection on synthetic word boxes (no PDF needed).
     def word(x0, x1, top):
