@@ -62,18 +62,20 @@ Cross-OS rule running through everything: **never hardcode paths or separators, 
 - [x] Hybrid score = 0.55·cosine + 0.45·coverage.
 - [x] Self-check (identical≈1, missing terms detected, unrelated low) + verified discrimination on real resumes (data-eng 74 > sysadmin 46 > frontend 21 vs a data JD).
 
-## Phase 6 — Core + report (`core.py`, `report.py`)
+## Phase 6 — Core + report (`core.py`, `report.py`) ✅
 
-- [ ] `score(resume_path, jd_path=None) -> Report` — orchestrates phases 1–5, applies weights. **All logic lives here; CLI stays thin.**
-- [ ] Weights as constants in one place; ATS-readiness weighted slightly higher.
-- [ ] `report.py`: `rich` formatted output (the report shape in spec) + `--json` machine output.
-- [ ] Plain-text fallback when not a TTY / `NO_COLOR` set.
+- [x] `score(resume_path, jd_path=None) -> Report` — orchestrates phases 1–5, applies weights. **All logic lives here; CLI stays thin.**
+- [x] Weights as constants in one place; ATS-readiness weighted highest. No-JD branch (3 weights) vs JD branch (4 weights).
+- [x] JD-match gated on a JD; no JD → `detect_skills()` readback (parser-readable skills, no penalty).
+- [x] `report.py`: `rich` formatted output + `--json` machine output (`to_dict`/`render_json`).
+- [x] Plain-text fallback when not a TTY / `NO_COLOR` set (and if `rich` import fails).
+- [x] Self-checks (core: JD vs no-JD branches; report: plain + JSON). Verified on real resumes via CLI.
 
-## Phase 7 — CLI (`cli.py`)
+## Phase 7 — CLI (`cli.py`) ✅
 
-- [ ] `argparse`: positional `resume`, `--jd`, `--json`. Thin wrapper over `score()`.
-- [ ] Non-zero exit on file-not-found / unsupported type.
-- [ ] `main()` entry point.
+- [x] `argparse`: positional `resume`, `--jd`, `--json`. Thin wrapper over `score()`.
+- [x] Non-zero exit (2) on file-not-found / unsupported type.
+- [x] `main()` entry point (wired in pyproject: `ats-score = ats_score.cli:main`).
 
 ## Phase 8 — Tests
 
