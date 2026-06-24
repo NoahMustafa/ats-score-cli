@@ -14,6 +14,7 @@ env/
 build/
 dist/
 *.spec
+!tool.spec      # hand-written build spec, keep it
 
 # OS cruft
 .DS_Store
