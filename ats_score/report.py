@@ -118,11 +118,15 @@ def _render_plain(r: Report) -> str:
 
 
 def _render_rich(r: Report) -> str:
+    import io
     from rich.console import Console
     from rich.table import Table
     from rich.panel import Panel
 
-    console = Console(record=True, force_terminal=True)
+    # file=StringIO so console.print() doesn't ALSO write to the real stdout;
+    # we return the exported string and cli.py prints it once. force_terminal
+    # keeps ANSI styling in the capture even though it isn't a real TTY.
+    console = Console(record=True, force_terminal=True, file=io.StringIO())
     name = os.path.basename(r.source) or r.source
     console.print(Panel(
         f"[bold {_color(r.overall)}]{r.overall}/100[/]  ({_grade(r.overall)})",
