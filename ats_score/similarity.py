@@ -114,6 +114,14 @@ def _skills(text: str) -> set[str]:
             if " " in s or not any(s in m.split() for m in multi)}
 
 
+def detect_skills(text: str, limit: int = 12) -> list[str]:
+    """Skills the parser can read in a resume (no JD). A readback, not a score:
+    if a headline skill is missing here, the resume's formatting hid it.
+    Ranked specific-first (multi-word before single)."""
+    found = _skills(text)
+    return sorted(found, key=lambda s: (-len(s.split()), s))[:limit]
+
+
 def check_similarity(resume_text: str, jd_text: str) -> SimilarityResult:
     jd_skills = _skills(jd_text)
     resume_skills = _skills(resume_text)
