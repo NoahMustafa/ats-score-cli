@@ -34,12 +34,15 @@ Cross-OS rule running through everything: **never hardcode paths or separators, 
 - [x] Self-check + verified on 4 real resumes.
 - Note: icon-hyperlinked contact (email only in PDF link annotation, not text) reads as "no email". Defensible (icon-only contact is an ATS risk). Future: parse PDF URI annotations if false-positives bite.
 
-## Phase 3 — Checks: content (`checks_content.py`)
+## Phase 3 — Checks: content (`checks_content.py`) ✅
 
-- [ ] Action-verb detection; weak-verb flags (bundled wordlist).
-- [ ] Quantified-bullet check (numbers / %).
-- [ ] Length vs bullet-count heuristics.
-- [ ] Returns sub-scores + per-line findings.
+- [x] Action-verb detection (strong/weak verb sets + -ed/-ing heuristic); weak-verb flags.
+- [x] Quantified-bullet check — ignores years/versions so "in 2024" / "Python 3.11" don't fake a metric.
+- [x] Length heuristic, scales with seniority (year-token / title proxy).
+- [x] Section-aware: verb/quantification rules apply only to bullets under Experience/Project headings; skills "Category: items" lines exempt. Killed false positives.
+- [x] Glyph + numbered bullet detection.
+- [x] Returns sub-score + per-line findings.
+- [x] Self-check (covers each fix) + verified on 6 real resumes.
 
 ## Phase 4 — Writing (`writing.py`)
 
