@@ -27,7 +27,39 @@ STOP = {
     "candidate", "candidates", "looking", "join", "position", "opportunity",
     "environment", "excellent", "good", "great", "high", "highly", "ideal",
     "hiring", "seeking", "apply", "applicant", "applicants", "wanted", "needed",
+    # JD-boilerplate verbs and fluff — actions/adjectives, not skills to "have"
+    "implement", "implementing", "implementation", "design", "designing",
+    "build", "building", "maintain", "maintaining", "improve", "improving",
+    "integrate", "integrating", "automate", "automating", "contribute",
+    "contributing", "translate", "deliver", "delivering", "ensure", "ensuring",
+    "develop", "developing", "create", "creating", "manage", "managing",
+    "provide", "providing", "partnering", "enabling", "driving", "owning",
+    "scheduling", "best", "practices", "fundamentals", "understanding",
+    "proven", "demonstrable", "reliable", "scalable", "clear", "validation",
+    "documentation", "attention", "detail", "independently", "pressure",
+    "qualifications", "minimum", "key", "trade-offs", "downstream", "multiple",
+    "sources", "responsible", "closely", "reliably", "applicable", "relevant",
 }
+
+# British -> American so JD "modelling/optimisation" matches resume "modeling".
+_BRIT = {
+    "modelling": "modeling", "modelled": "modeled", "labelling": "labeling",
+    "travelling": "traveling", "cancelled": "canceled", "catalogue": "catalog",
+}
+
+
+def _normalize_word(t: str) -> str:
+    if t in _BRIT:
+        return _BRIT[t]
+    if t.endswith("isation"):
+        return t[:-7] + "ization"
+    if t.endswith("ised"):
+        return t[:-4] + "ized"
+    if t.endswith("ising"):
+        return t[:-5] + "izing"
+    if t.endswith("ise") and len(t) > 5:
+        return t[:-3] + "ize"
+    return t
 
 _TOKEN = re.compile(r"[a-zA-Z][a-zA-Z0-9+#.\-]{1,}")
 
@@ -66,7 +98,7 @@ def _keywords(text: str) -> tuple[set[str], dict[str, int]]:
     """Clean content keywords with JD frequency (punctuation stripped)."""
     grams: dict[str, int] = {}
     for raw in _TOKEN.findall(text.lower()):
-        t = raw.strip(".-")  # "python." -> "python", keep node.js / c++ intact
+        t = _normalize_word(raw.strip(".-"))  # punct + British spelling
         if len(t) >= 3 and t not in STOP:
             grams[t] = grams.get(t, 0) + 1
     return set(grams), grams
@@ -113,6 +145,11 @@ def _selfcheck() -> None:
     r3 = check_similarity(resume, unrelated)
     assert r3.cosine < r1.cosine
     assert r3.score < r2.score
+
+    # British spelling in the JD must not show as a missing skill.
+    r4 = check_similarity("Skilled in data modeling and optimization.",
+                          "Need data modelling and optimisation skills.")
+    assert "modelling" not in r4.missing and "optimisation" not in r4.missing, r4.missing
 
     print("similarity selfcheck ok")
 
