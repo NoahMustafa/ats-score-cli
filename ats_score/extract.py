@@ -108,10 +108,42 @@ def _page_text(page) -> tuple[str, bool]:
     # ponytail: x_tolerance=2 recovers lost word spacing without over-splitting.
     gutter = _gutter(page)
     if gutter is None:
-        return (page.extract_text(x_tolerance=2) or ""), False
+        text = page.extract_text(x_tolerance=2) or ""
+        # Word-exported resumes draw list bullets as vector dots, not text, so
+        # extract_text yields no "•". Reconstruct them so bullets are gradable.
+        dots = _bullet_dots(page)
+        if dots and "•" not in text:
+            text = _text_with_bullets(page, dots)
+        return text, False
     left = page.crop((0, 0, gutter, page.height)).extract_text(x_tolerance=2) or ""
     right = page.crop((gutter, 0, page.width, page.height)).extract_text(x_tolerance=2) or ""
     return (left + "\n" + right), True
+
+
+def _bullet_dots(page) -> list[tuple[float, float]]:
+    """(x, top) of small left-side vector marks used as list bullets."""
+    dots: list[tuple[float, float]] = []
+    for o in page.curves + page.rects:
+        w = o["x1"] - o["x0"]
+        h = o["bottom"] - o["top"]
+        if w < 12 and h < 12 and o["x0"] < page.width * 0.5:
+            dots.append((o["x0"], o["top"]))
+    return dots
+
+
+def _text_with_bullets(page, dots: list[tuple[float, float]]) -> str:
+    """Rebuild page text line by line, prepending "•" where a dot sits left."""
+    lines = _group_lines(page.extract_words(x_tolerance=2))
+    out: list[str] = []
+    for ws in lines:
+        ws.sort(key=lambda w: w["x0"])
+        top = min(w["top"] for w in ws)
+        x0 = ws[0]["x0"]
+        txt = " ".join(w["text"] for w in ws)
+        if any(abs(dt - top) <= 5 and dx < x0 and x0 - dx < 40 for dx, dt in dots):
+            txt = "• " + txt
+        out.append(txt)
+    return "\n".join(out)
 
 
 def _gutter(page) -> float | None:
