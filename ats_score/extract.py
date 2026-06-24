@@ -12,6 +12,9 @@ from pathlib import Path
 
 # Unmappable glyphs pdfplumber emits for icon/symbol fonts.
 _CID = re.compile(r"\(cid:\d+\)")
+# Zero-width / BOM chars (templates like Enhancv inject these; they silently
+# break keyword and spell matching, e.g. a zero-width space inside "JavaScript").
+_ZEROWIDTH = re.compile("[​‌‍⁠﻿]")
 
 
 @dataclass
@@ -32,6 +35,7 @@ def _normalize(text: str) -> str:
     # unmappable icon-font glyphs that would otherwise read as spell errors.
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = _CID.sub("", text)
+    text = _ZEROWIDTH.sub("", text)
     return text.strip()
 
 
@@ -197,6 +201,9 @@ def _selfcheck() -> None:
         pass
     else:
         raise AssertionError("expected rejection of .txt")
+
+    assert _normalize("Java​Script﻿") == "JavaScript", "zero-width strip"
+    assert _normalize("a\x0d\x0ab") == "a\nb"
 
     print("extract selfcheck ok")
 
