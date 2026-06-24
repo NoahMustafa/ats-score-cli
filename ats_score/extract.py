@@ -145,7 +145,10 @@ def _text_with_bullets(page, dots: list[tuple[float, float]]) -> str:
         top = min(w["top"] for w in ws)
         x0 = ws[0]["x0"]
         txt = " ".join(w["text"] for w in ws)
-        if any(abs(dt - top) <= 5 and dx < x0 and x0 - dx < 40 for dx, dt in dots):
+        # The bullet glyph sits a few px above the text top (observed +5–6 px),
+        # so the vertical tolerance must clear that; the x-gate (dot just left of
+        # the line start, within 40px) keeps it from tagging non-bullet lines.
+        if any(abs(dt - top) <= 8 and dx < x0 and x0 - dx < 40 for dx, dt in dots):
             txt = "• " + txt
         out.append(txt)
     return "\n".join(out)
