@@ -55,10 +55,27 @@ class SimilarityResult:
                 f"· missing: {miss}")
 
 
+# Lone ESCO entries that are generic English, not distinguishing skills. They
+# only cause noise ("retrieval" from "retrieval layers", "clean" from "clean
+# pipelines"). Real single-word skills (python, azure, accounting) are kept.
+_GENERIC = {
+    "clean", "retrieval", "access", "absorb", "accompany", "basic", "general",
+    "various", "additional", "relevant", "related", "current", "daily",
+    "overall", "support", "deliver", "provide", "obtain", "perform", "process",
+    "handle", "prepare", "maintain", "operate", "assist", "monitor", "review",
+    "control", "report", "record", "collect", "follow", "complete", "identify",
+    "achieve", "apply", "adopt", "advise", "arrange", "attend", "assess",
+    "balance", "build", "carry", "check", "clear", "close", "conduct", "create",
+}
+
+
 @lru_cache(maxsize=1)
 def _gazetteer() -> frozenset[str]:
     text = bundled_path("data/skills.txt").read_text(encoding="utf-8")
-    return frozenset(line for line in text.splitlines() if line)
+    return frozenset(
+        line for line in text.splitlines()
+        if line and not (" " not in line and line in _GENERIC)
+    )
 
 
 @lru_cache(maxsize=1)
