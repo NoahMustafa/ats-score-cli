@@ -156,6 +156,11 @@ Being honest so the score isn't misleading:
   simulator: we recover graphic bullets so content can score them, but still flag
   them as a parsing risk because a real ATS won't see them. This is intended
   behavior, not a defect.
+- **The "bullets are graphics" flag can over-trigger.** Detection keys on small
+  left-margin vector marks; a resume that uses no text bullets but has decorative
+  marks (dividers, icons) can read as having graphic bullets. It fires on a large
+  share of real-world PDFs, so treat that one warning (−4) as soft. On the
+  to-improve list.
 - **Location detection is heuristic** (header-zone "City, Region" / "Remote"); an
   unusual location format may not be recognized.
 - **Not a recruiter/batch ranking tool** — it scores one resume at a time.
