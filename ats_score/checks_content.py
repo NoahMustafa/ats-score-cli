@@ -68,15 +68,17 @@ _SENIOR = re.compile(r"\b(senior|lead|principal|staff|manager|director|head)\b",
 class ContentResult:
     score: int
     findings: list[Finding]
-    bullets: int = 0
+    bullets: int = 0       # total bullets found
+    graded: int = 0        # bullets under Experience/Projects (verb/number rules apply)
     unquantified: int = 0
     weak: int = 0
     no_verb: int = 0
 
     @property
     def summary(self) -> str:
-        return (f"{self.bullets} bullets · {self.unquantified} missing numbers "
-                f"· {self.weak} weak verbs · {self.no_verb} no action verb")
+        return (f"{self.bullets} bullets ({self.graded} graded) · "
+                f"{self.unquantified} missing numbers · {self.weak} weak verbs "
+                f"· {self.no_verb} no action verb")
 
 
 def _bullets(text: str) -> list[tuple[int, str, bool]]:
@@ -84,12 +86,14 @@ def _bullets(text: str) -> list[tuple[int, str, bool]]:
     out: list[tuple[int, str, bool]] = []
     in_experience = False
     for i, line in enumerate(text.splitlines(), start=1):
+        # Bullet check first: a short bullet ("• Hi") can otherwise look like a
+        # heading and get swallowed.
+        if _BULLET.match(line):
+            out.append((i, _BULLET.sub("", line).strip(), in_experience))
+            continue
         if _is_heading(line):
             low = line.lower()
             in_experience = any(k in low for k in _ACHIEVEMENT_HEADINGS)
-            continue
-        if _BULLET.match(line):
-            out.append((i, _BULLET.sub("", line).strip(), in_experience))
     return out
 
 
@@ -166,7 +170,8 @@ def check_content(doc: Document) -> ContentResult:
     score = max(0, 100 - sum(f.penalty for f in findings))
     return ContentResult(
         score=score, findings=findings, bullets=len(bullets),
-        unquantified=unquantified, weak=weak, no_verb=no_verb,
+        graded=len(achievements), unquantified=unquantified, weak=weak,
+        no_verb=no_verb,
     )
 
 
