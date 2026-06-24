@@ -13,8 +13,9 @@ env/
 # PyInstaller build output
 build/
 dist/
+# hand-written build spec is tracked; generated *.spec are not
 *.spec
-!tool.spec      # hand-written build spec, keep it
+!tool.spec
 
 # OS cruft
 .DS_Store
