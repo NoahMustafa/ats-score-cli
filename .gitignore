@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# OS cruft
+.DS_Store
+Thumbs.db
