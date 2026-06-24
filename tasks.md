@@ -77,10 +77,10 @@ Cross-OS rule running through everything: **never hardcode paths or separators, 
 - [x] Non-zero exit (2) on file-not-found / unsupported type.
 - [x] `main()` entry point (wired in pyproject: `ats-score = ats_score.cli:main`).
 
-## Phase 8 — Tests
+## Phase 8 — Tests ✅
 
-- [ ] `tests/test_writing.py`, `tests/test_checks.py` — asserts on fixture resumes (good + bad).
-- [ ] No frameworks beyond `pytest`; small fixtures, no network.
+- [x] `tests/test_checks.py` (ATS + content), `tests/test_writing.py`, `tests/test_core.py` (JD gating, weighting, report shapes).
+- [x] All fixtures synthetic (in-code Documents + a tmp DOCX) — runs in CI with **no resume corpus** (PII stays git-ignored). No network. 19 tests pass.
 
 ## Phase 9 — Packaging (per-OS binary)
 

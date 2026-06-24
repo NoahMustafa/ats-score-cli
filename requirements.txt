@@ -5,5 +5,8 @@ pyspellchecker>=0.8     # typos (pure-python, bundled freq dict)
 model2vec>=0.3          # static embeddings (numpy-only, no torch/onnx)
 rich>=13.0              # terminal output (plain fallback)
 
+# Test-only — not needed at runtime
+# pytest>=8.0
+
 # Build-only (binary packaging) — install separately, not needed at runtime
 # pyinstaller>=6.0
