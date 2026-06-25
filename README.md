@@ -159,8 +159,3 @@ Being honest so the score isn't misleading:
   can read as having graphic bullets. Treat that one warning (−4) as soft.
 - **Not a recruiter / batch tool** — it scores one resume at a time. Batch
   ranking is deferred (it also carries an EU AI Act / NYC LL144 legal surface).
-
----
-
-See [specs.md](specs.md) for design rationale and [tasks.md](tasks.md) for build
-status.
