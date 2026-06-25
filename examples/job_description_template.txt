@@ -1,0 +1,25 @@
+Senior Data Engineer
+
+About the role:
+We are building data and AI-driven systems and need someone to own ingestion,
+enrichment, and transformation pipelines that power analytics and ML workflows.
+
+Responsibilities:
+Design, build, and maintain reliable ingestion and transformation pipelines.
+Integrate APIs and automate data ingestion, enrichment, and scheduling.
+Implement ETL/ELT workflows with clear validation, monitoring, and documentation.
+Contribute to schema design and data modeling for analytics and downstream products.
+Improve query performance, pipeline efficiency, and runtime reliability.
+Collaborate with stakeholders to translate needs into shippable data outputs.
+
+Requirements:
+Strong SQL and Python skills with proven experience delivering production data workflows.
+Experience building batch and near-real-time data pipelines across multiple sources.
+Understanding of data modeling fundamentals (normalization, dimensional modeling).
+Hands-on experience with a cloud data platform (Azure, AWS, or GCP).
+Experience with Airflow, dbt, Spark, Kafka, Snowflake, or similar tools.
+Strong attention to detail; able to work independently under pressure.
+
+Nice to have:
+Experience with Docker, Kubernetes, and CI/CD pipelines.
+Familiarity with Power BI or Tableau for data visualization.

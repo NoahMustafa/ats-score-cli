@@ -98,6 +98,27 @@ model is bundled, so this works fully offline. It still does not *reason* (it's
 vector similarity, not an LLM): it captures relatedness, not logical entailment
 or evidence quotes — that's a future `--deep` upgrade.
 
+**Job description format — just plain text.** Pass a `.txt` file or a quoted
+string; no special formatting required.
+
+```
+tool resume.pdf --jd job.txt
+tool resume.pdf --jd "Senior Data Engineer. Python, SQL, Airflow, AWS. Build and maintain data pipelines."
+```
+
+For the best match, paste the **whole posting** (responsibilities + requirements
++ a skills list). How the two tiers read it:
+
+- **Tier 1** scans the entire text for *named skills*, so list concrete tools and
+  technologies (`Python`, `Airflow`, `Kubernetes`, `Snowflake`).
+- **Tier 2** splits the text into *requirement sentences* — segments of **5+
+  words**, broken on newlines, sentence punctuation, and bullets. Keep
+  requirement statements as real sentences; short headers ("Requirements:") are
+  ignored. Bullets and line breaks are fine.
+
+See [examples/job_description_template.txt](examples/job_description_template.txt)
+for a ready-to-edit template.
+
 ---
 
 ## What it does **not** do (V1)
