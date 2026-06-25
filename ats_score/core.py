@@ -1,8 +1,13 @@
-"""Orchestration: run every check, weight the sub-scores, return one Report.
+"""Orchestration for V1: an ATS-readiness linter.
 
-All scoring logic lives here so the CLI stays a thin wrapper. JD-match is
-optional — it only runs when a job description is supplied. Without one, the
-report instead lists the skills the parser could read (a readback, not a score).
+The overall score IS the ATS-readiness score — can a tracking system parse this
+resume, and what is it missing. Writing advice (filler + AI tells) is reported
+but does NOT affect the score. Content-quality grading (bullets/quantification)
+is kept in the codebase but intentionally not wired into V1 — it was unreliable.
+
+JD-match needs the embedding model, which is not bundled in V1. It runs only
+when a JD is given AND the model is present on disk; otherwise the report just
+lists the skills the parser could read (taxonomy-only, no model needed).
 """
 
 from __future__ import annotations
@@ -12,24 +17,23 @@ from pathlib import Path
 
 from .extract import extract, Document
 from .checks_ats import check_ats, AtsResult
-from .checks_content import check_content, ContentResult
 from .writing import check_writing, WritingResult
-from .similarity import check_similarity, detect_skills, SimilarityResult
+from .similarity import detect_skills
+from .paths import bundled_path
 
-# ATS-readiness weighted highest: a resume the machine can't parse fails before
-# content or wording matter. Weights per branch sum to 1.0.
-WEIGHTS = {"ats": 0.40, "content": 0.35, "writing": 0.25}
-WEIGHTS_JD = {"ats": 0.30, "content": 0.25, "writing": 0.20, "jd": 0.25}
+
+def _model_available() -> bool:
+    return bundled_path("data/potion-8M").exists()
 
 
 @dataclass
 class Report:
-    overall: int
+    overall: int                      # == ATS-readiness score in V1
     ats: AtsResult
-    content: ContentResult
-    writing: WritingResult
-    similarity: SimilarityResult | None = None   # only when a JD is given
-    detected_skills: list[str] = field(default_factory=list)  # only when no JD
+    writing: WritingResult            # advice only, not scored
+    detected_skills: list[str] = field(default_factory=list)
+    similarity: object | None = None  # SimilarityResult when a JD + model exist
+    jd_unavailable: bool = False      # JD given but model not bundled
     warnings: list[str] = field(default_factory=list)
     source: str = ""
 
@@ -45,25 +49,24 @@ def score(resume_path: str | Path, jd_path: str | Path | None = None) -> Report:
     doc: Document = extract(resume_path)
 
     ats = check_ats(doc)
-    content = check_content(doc)
     writing = check_writing(doc)
 
-    sim: SimilarityResult | None = None
+    sim = None
+    jd_unavailable = False
     detected: list[str] = []
-    if jd_path is not None:
+    if jd_path is not None and _model_available():
+        from .similarity import check_similarity
         sim = check_similarity(doc.text, _read_jd(jd_path))
-        parts = {"ats": ats.score, "content": content.score,
-                 "writing": writing.score, "jd": sim.score}
-        overall = round(sum(parts[k] * w for k, w in WEIGHTS_JD.items()))
+    elif jd_path is not None:
+        jd_unavailable = True          # model not in this build
+        detected = detect_skills(doc.text)
     else:
         detected = detect_skills(doc.text)
-        parts = {"ats": ats.score, "content": content.score,
-                 "writing": writing.score}
-        overall = round(sum(parts[k] * w for k, w in WEIGHTS.items()))
 
     return Report(
-        overall=overall, ats=ats, content=content, writing=writing,
-        similarity=sim, detected_skills=detected, warnings=doc.warnings,
+        overall=ats.score, ats=ats, writing=writing,
+        detected_skills=detected, similarity=sim,
+        jd_unavailable=jd_unavailable, warnings=doc.warnings,
         source=str(resume_path),
     )
 
@@ -75,30 +78,31 @@ def _selfcheck() -> None:
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "r.docx"
         doc = docx.Document()
-        doc.add_paragraph("Jane Doe — jane@example.com — +1 555 123 4567")
+        doc.add_paragraph("Jane Doe — jane@example.com — +1 555 123 4567 — Austin, TX")
+        doc.add_paragraph("linkedin.com/in/janedoe")
         doc.add_paragraph("SUMMARY")
         doc.add_paragraph("Data engineer skilled in Python and SQL.")
         doc.add_paragraph("WORK EXPERIENCE")
-        for n in (15, 20, 25, 30):
-            doc.add_paragraph(f"• Increased revenue by {n}% across 3 regions.")
+        doc.add_paragraph("Built pipelines Jan 2024 to Mar 2024.")
         doc.add_paragraph("EDUCATION")
         doc.add_paragraph("BSc Computer Science")
         doc.add_paragraph("TECHNICAL SKILLS")
         doc.add_paragraph("Python, SQL, AWS, Airflow, ETL")
         doc.save(str(p))
 
-        # No JD: 3-way weighting, skills readback present, no similarity.
         r = score(p)
-        assert r.similarity is None, "no JD must skip similarity"
+        # Overall is exactly the ATS score in V1.
+        assert r.overall == r.ats.score, (r.overall, r.ats.score)
+        assert r.similarity is None
         assert r.detected_skills, "no JD should list detected skills"
-        assert 0 <= r.overall <= 100, r.overall
 
-        # With JD: similarity present, no readback, 4-way weighting.
-        rj = score(p, "Data engineer with python, sql, aws, kubernetes and spark.")
-        assert rj.similarity is not None, "JD must produce a similarity result"
-        assert not rj.detected_skills, "JD path should not list detected skills"
-        assert "kubernetes" in rj.similarity.missing, rj.similarity.missing
-        assert 0 <= rj.overall <= 100, rj.overall
+        # JD path: either runs (model present) or reports unavailable — never
+        # crashes. detected_skills stand in when the model is absent.
+        rj = score(p, "python sql aws kubernetes")
+        if _model_available():
+            assert rj.similarity is not None and not rj.jd_unavailable
+        else:
+            assert rj.jd_unavailable and rj.similarity is None
 
     print("core selfcheck ok")
 

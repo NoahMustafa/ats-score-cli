@@ -4,24 +4,29 @@
 # All bundled data lands under ats_score/data so it matches the dev layout that
 # paths.bundled_path() expects (sys._MEIPASS/ats_score/data/...).
 
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
-
-datas = [("ats_score/data", "ats_score/data")]
-datas += collect_data_files("spellchecker")   # bundled frequency dictionary
-# Some deps look up their own version via importlib.metadata at import time.
-for pkg in ("model2vec", "tokenizers", "safetensors", "numpy"):
-    datas += copy_metadata(pkg)
+# V1: the embedding model is NOT bundled. JD-match is disabled in this build
+# (core._model_available() returns False when data/potion-8M is absent). We
+# bundle only the skills taxonomy, which is taxonomy-only and needs no model.
+# Spelling was removed, so words_alpha.txt is not bundled either.
+datas = [
+    ("ats_score/data/skills.txt", "ats_score/data"),
+    ("ats_score/data/esco_version.txt", "ats_score/data"),
+]
+datas = [d for d in datas if __import__("os").path.exists(d[0])]
 
 a = Analysis(
     ["run.py"],
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=["model2vec", "tokenizers", "safetensors"],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "IPython", "pytest"],
+    # Model stack + spelling are unused in V1 — exclude to shrink the binary.
+    # They import lazily inside functions that V1 never calls, so this is safe.
+    excludes=["tkinter", "matplotlib", "IPython", "pytest",
+              "model2vec", "tokenizers", "safetensors", "spellchecker"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

@@ -1,7 +1,8 @@
 """Render a Report: rich terminal output, plain-text fallback, or JSON.
 
-The CLI picks the mode; this module owns the formatting. Findings are the point
-of the tool, so each section prints its actionable findings, not just a number.
+V1 is an ATS-readiness linter: the overall score is the ATS score, the body is
+"what's wrong / what's missing for ATS", and writing advice (filler + AI tells)
+is shown separately as suggestions that do not affect the score.
 """
 
 from __future__ import annotations
@@ -35,15 +36,13 @@ def to_dict(r: Report) -> dict:
 
     out: dict = {
         "source": r.source,
-        "overall": r.overall,
+        "overall": r.overall,                 # == ats score
         "ats": {"score": r.ats.score, "findings": findings(r.ats.findings)},
-        "content": {"score": r.content.score, "findings": findings(r.content.findings),
-                    "bullets": r.content.bullets, "graded": r.content.graded,
-                    "unquantified": r.content.unquantified, "weak": r.content.weak,
-                    "no_verb": r.content.no_verb},
-        "writing": {"score": r.writing.score, "findings": findings(r.writing.findings),
-                    "typos": r.writing.typos, "fillers": r.writing.fillers,
-                    "ai_tells": r.writing.ai_tells, "grammar": r.writing.grammar},
+        "writing_advice": {                    # not scored
+            "fillers": r.writing.fillers,
+            "ai_tells": r.writing.ai_tells,
+            "findings": findings(r.writing.findings),
+        },
     }
     if r.similarity is not None:
         s = r.similarity
@@ -52,6 +51,8 @@ def to_dict(r: Report) -> dict:
                            "missing": s.missing}
     else:
         out["detected_skills"] = r.detected_skills
+        if r.jd_unavailable:
+            out["jd_match_unavailable"] = "embedding model not bundled in this build"
     if r.warnings:
         out["warnings"] = r.warnings
     return out
@@ -66,7 +67,6 @@ def _use_color() -> bool:
 
 
 def render(r: Report) -> str:
-    """Rich output if attached to a color TTY, otherwise plain text."""
     if _use_color():
         try:
             return _render_rich(r)
@@ -75,44 +75,39 @@ def render(r: Report) -> str:
     return _render_plain(r)
 
 
-def _sections(r: Report):
-    """(label, score, summary) for the four sub-scores, JD only if present."""
-    yield "ATS readiness", r.ats.score, r.ats.summary
-    yield "Content", r.content.score, r.content.summary
-    yield "Writing", r.writing.score, r.writing.summary
-    if r.similarity is not None:
-        yield "JD match", r.similarity.score, r.similarity.summary
-
-
 def _render_plain(r: Report) -> str:
     L: list[str] = []
     name = os.path.basename(r.source) or r.source
-    L.append(f"Resume score: {r.overall}/100 ({_grade(r.overall)})  —  {name}")
+    L.append(f"ATS readiness: {r.overall}/100 ({_grade(r.overall)})  —  {name}")
     L.append("=" * 60)
-    for label, sc, summ in _sections(r):
-        L.append(f"\n{label}: {sc}/100 ({_grade(sc)})")
-        L.append(f"  {summ}")
 
-    all_findings = (r.ats.findings + r.content.findings + r.writing.findings)
-    fails = [f for f in all_findings if f.severity == "fail"]
-    warns = [f for f in all_findings if f.severity == "warn"]
+    fails = [f for f in r.ats.findings if f.severity == "fail"]
+    warns = [f for f in r.ats.findings if f.severity == "warn"]
     if fails:
-        L.append("\nFix first:")
+        L.append("\nFix these (blocks ATS parsing):")
         L.extend(f"  ✗ {f.message}" for f in fails)
     if warns:
-        L.append("\nImprove:")
-        L.extend(f"  • {f.message}" for f in warns[:20])
-        if len(warns) > 20:
-            L.append(f"  … and {len(warns) - 20} more")
+        L.append("\nMissing / improve:")
+        L.extend(f"  • {f.message}" for f in warns)
+    if not fails and not warns:
+        L.append("\nNo ATS issues found.")
+
+    if r.writing.findings:
+        L.append("\nWriting advice (not scored — clean up for a human reader):")
+        L.extend(f"  ~ {f.message}" for f in r.writing.findings[:20])
+        if len(r.writing.findings) > 20:
+            L.append(f"  … and {len(r.writing.findings) - 20} more")
 
     if r.similarity is not None:
-        s = r.similarity
-        if s.missing:
+        if r.similarity.missing:
             L.append("\nMissing skills the JD asks for:")
-            L.append("  " + ", ".join(s.missing))
-    elif r.detected_skills:
-        L.append("\nSkills the parser read (add a JD with --jd to match):")
-        L.append("  " + ", ".join(r.detected_skills))
+            L.append("  " + ", ".join(r.similarity.missing))
+    else:
+        if r.jd_unavailable:
+            L.append("\n(JD match unavailable: embedding model not bundled in this build.)")
+        if r.detected_skills:
+            L.append("\nSkills the parser read:")
+            L.append("  " + ", ".join(r.detected_skills))
 
     return "\n".join(L)
 
@@ -120,39 +115,33 @@ def _render_plain(r: Report) -> str:
 def _render_rich(r: Report) -> str:
     import io
     from rich.console import Console
-    from rich.table import Table
     from rich.panel import Panel
 
-    # file=StringIO so console.print() doesn't ALSO write to the real stdout;
-    # we return the exported string and cli.py prints it once. force_terminal
-    # keeps ANSI styling in the capture even though it isn't a real TTY.
     console = Console(record=True, force_terminal=True, file=io.StringIO())
     name = os.path.basename(r.source) or r.source
     console.print(Panel(
         f"[bold {_color(r.overall)}]{r.overall}/100[/]  ({_grade(r.overall)})",
-        title=f"Resume score — {name}", expand=False))
+        title=f"ATS readiness — {name}", expand=False))
 
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Section")
-    table.add_column("Score", justify="right")
-    table.add_column("Detail")
-    for label, sc, summ in _sections(r):
-        table.add_row(label, f"[{_color(sc)}]{sc}[/]", summ)
-    console.print(table)
-
-    all_findings = (r.ats.findings + r.content.findings + r.writing.findings)
-    fails = [f for f in all_findings if f.severity == "fail"]
-    warns = [f for f in all_findings if f.severity == "warn"]
+    fails = [f for f in r.ats.findings if f.severity == "fail"]
+    warns = [f for f in r.ats.findings if f.severity == "warn"]
     if fails:
-        console.print("\n[bold red]Fix first[/]")
+        console.print("[bold red]Fix these[/] [dim](blocks ATS parsing)[/]")
         for f in fails:
             console.print(f"  [red]✗[/] {f.message}")
     if warns:
-        console.print("\n[bold yellow]Improve[/]")
-        for f in warns[:20]:
+        console.print("\n[bold yellow]Missing / improve[/]")
+        for f in warns:
             console.print(f"  [yellow]•[/] {f.message}")
-        if len(warns) > 20:
-            console.print(f"  [dim]… and {len(warns) - 20} more[/]")
+    if not fails and not warns:
+        console.print("[green]No ATS issues found.[/]")
+
+    if r.writing.findings:
+        console.print("\n[bold]Writing advice[/] [dim](not scored)[/]")
+        for f in r.writing.findings[:20]:
+            console.print(f"  [dim]~[/] {f.message}")
+        if len(r.writing.findings) > 20:
+            console.print(f"  [dim]… and {len(r.writing.findings) - 20} more[/]")
 
     if r.similarity is not None:
         s = r.similarity
@@ -160,9 +149,12 @@ def _render_rich(r: Report) -> str:
             console.print("\n[bold green]Matched skills[/]  " + ", ".join(s.matched))
         if s.missing:
             console.print("[bold red]Missing skills[/]  " + ", ".join(s.missing))
-    elif r.detected_skills:
-        console.print("\n[bold]Skills the parser read[/] [dim](add --jd to match)[/]")
-        console.print("  " + ", ".join(r.detected_skills))
+    else:
+        if r.jd_unavailable:
+            console.print("\n[dim](JD match unavailable: model not bundled in this build.)[/]")
+        if r.detected_skills:
+            console.print("\n[bold]Skills the parser read[/]")
+            console.print("  " + ", ".join(r.detected_skills))
 
     return console.export_text(styles=True).rstrip("\n")
 
@@ -170,25 +162,24 @@ def _render_rich(r: Report) -> str:
 def _selfcheck() -> None:
     from .core import Report
     from .checks_ats import AtsResult, Finding
-    from .checks_content import ContentResult
     from .writing import WritingResult
 
     r = Report(
-        overall=82,
-        ats=AtsResult(90, [Finding("warn", "missing section: Summary", 8)]),
-        content=ContentResult(80, [Finding("warn", "2/5 bullets lack numbers", 4)],
-                              bullets=5, graded=5, unquantified=2),
-        writing=WritingResult(95, [], typos=0, fillers=0, ai_tells=0),
-        detected_skills=["machine learning", "python", "sql"],
+        overall=84,
+        ats=AtsResult(84, [Finding("fail", "no email found", 10),
+                           Finding("warn", "missing section: Skills", 8)]),
+        writing=WritingResult([Finding("warn", 'line 3: AI vocab "delve"', 0)],
+                              fillers=0, ai_tells=1),
+        detected_skills=["python", "sql"],
         source="resume.pdf",
     )
     plain = _render_plain(r)
-    assert "82/100" in plain, plain
-    assert "machine learning" in plain
-    assert "missing section: Summary" in plain
+    assert "84/100" in plain and "no email found" in plain, plain
+    assert "delve" in plain and "not scored" in plain
+    assert "python" in plain
     d = to_dict(r)
-    assert d["overall"] == 82 and "detected_skills" in d and "jd_match" not in d
-    assert json.loads(render_json(r))["ats"]["score"] == 90
+    assert d["overall"] == 84 and "writing_advice" in d and "jd_match" not in d
+    assert json.loads(render_json(r))["ats"]["score"] == 84
 
     print("report selfcheck ok")
 

@@ -1,5 +1,4 @@
-"""End-to-end: JD gating, weighting, report shapes. Builds a DOCX in a tmpdir
-so it runs in CI with no resume corpus."""
+"""End-to-end V1: overall == ATS score, advice not scored, JD gated on model."""
 
 import json
 from pathlib import Path
@@ -7,20 +6,20 @@ from pathlib import Path
 import docx
 import pytest
 
-from ats_score.core import score
-from ats_score.report import to_dict, render_json, render, _render_plain
+from ats_score.core import score, _model_available
+from ats_score.report import to_dict, render_json, render
 
 
 @pytest.fixture
 def resume(tmp_path) -> Path:
     p = tmp_path / "r.docx"
     d = docx.Document()
-    d.add_paragraph("Jane Doe — jane@example.com — +1 555 123 4567")
+    d.add_paragraph("Jane Doe — jane@example.com — +1 555 123 4567 — Austin, TX")
+    d.add_paragraph("linkedin.com/in/janedoe")
     d.add_paragraph("SUMMARY")
     d.add_paragraph("Data engineer skilled in Python and SQL.")
     d.add_paragraph("WORK EXPERIENCE")
-    for n in (15, 20, 25, 30):
-        d.add_paragraph(f"Increased revenue by {n}% across 3 regions.")
+    d.add_paragraph("Built pipelines Jan 2024 to Mar 2024.")
     d.add_paragraph("EDUCATION")
     d.add_paragraph("BSc Computer Science")
     d.add_paragraph("TECHNICAL SKILLS")
@@ -29,35 +28,44 @@ def resume(tmp_path) -> Path:
     return p
 
 
-def test_no_jd_skips_match_and_lists_skills(resume):
+def test_overall_equals_ats_score(resume):
+    r = score(resume)
+    assert r.overall == r.ats.score
+    assert 0 <= r.overall <= 100
+
+
+def test_no_jd_lists_skills(resume):
     r = score(resume)
     assert r.similarity is None
     assert r.detected_skills
-    assert 0 <= r.overall <= 100
 
 
-def test_jd_runs_match_and_finds_gap(resume):
-    r = score(resume, "Data engineer with python, sql, aws, kubernetes and spark.")
-    assert r.similarity is not None
-    assert not r.detected_skills
-    assert "kubernetes" in r.similarity.missing
-    assert 0 <= r.overall <= 100
+def test_jd_gated_on_model(resume):
+    r = score(resume, "python sql aws kubernetes")
+    if _model_available():
+        assert r.similarity is not None and not r.jd_unavailable
+    else:
+        assert r.jd_unavailable and r.similarity is None
 
 
-def test_json_shape_switches_on_jd(resume):
-    no_jd = to_dict(score(resume))
-    assert "detected_skills" in no_jd and "jd_match" not in no_jd
-    with_jd = to_dict(score(resume, "python kubernetes"))
-    assert "jd_match" in with_jd and "detected_skills" not in with_jd
-    # render_json must be valid JSON.
-    assert json.loads(render_json(score(resume)))["overall"] == no_jd["overall"]
+def test_writing_advice_does_not_affect_score(resume):
+    # Overall is purely the ATS score; advice findings never change it.
+    r = score(resume)
+    assert r.overall == r.ats.score
 
 
-def test_render_is_plain_when_not_a_tty(resume):
-    # Captured (non-tty) output must be the plain renderer, no ANSI escapes.
+def test_json_shape(resume):
+    d = to_dict(score(resume))
+    assert d["overall"] == d["ats"]["score"]
+    assert "writing_advice" in d
+    assert "content" not in d            # content cut in V1
+    assert json.loads(render_json(score(resume)))["overall"] == d["overall"]
+
+
+def test_render_plain_when_not_a_tty(resume):
     out = render(score(resume))
     assert "\x1b[" not in out
-    assert "Resume score:" in out
+    assert "ATS readiness:" in out
 
 
 def test_unsupported_file_type_rejected(tmp_path):

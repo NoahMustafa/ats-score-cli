@@ -1,49 +1,23 @@
-"""Writing checks: spelling, filler phrases, and AI-generated tells.
+"""Writing advice: filler phrases and AI-generated tells.
 
-Operates on a Document's text. Returns a 0-100 sub-score plus per-line findings.
-Wordlists are kept conservative on purpose: a resume scorer that flags normal
-words ("enhance", "leverage", a date en-dash) is noise, not signal.
+V1 scope: this is *advice only* — it does not affect the overall score (which is
+ATS-readiness). It flags wordy filler and tell-tale signs of AI-generated text
+(em dashes, emojis, AI vocabulary, copula avoidance, chatbot paste artifacts) so
+the applicant can clean them up. Spelling and grammar checking were removed in
+V1: they were low-signal and noisy.
+
+Lists are kept conservative on purpose — a resume flagging normal words
+("enhance", "leverage", a date en-dash) is noise, not signal. The AI vocabulary
+and phrasing patterns are drawn from Wikipedia's "Signs of AI writing".
 """
 
 from __future__ import annotations
 
 import re
-import string
 from dataclasses import dataclass
-from functools import lru_cache
 
 from .extract import Document
-from .checks_ats import Finding, EMAIL
-from .paths import bundled_path
-
-# --- spelling ---------------------------------------------------------------
-# Only fully-lowercase word tokens are spell-checked. Capitalized words
-# (names, companies, tech like "Python"/"AWS") and anything with digits are
-# skipped — that removes the bulk of false positives without a huge dictionary.
-_URL = re.compile(r"https?://\S+|www\.\S+|\b[\w./-]+\.(?:com|io|dev|org|net|ai|co)\b", re.I)
-_STRIP = string.punctuation + "•·–—‣⁃◦"
-# Lowercase tech/resume terms a general dictionary doesn't know but are correct.
-SPELL_ALLOW = {
-    "devops", "fullstack", "frontend", "backend", "microservices", "kubernetes",
-    "dockerfile", "kubectl", "nginx", "postgres", "postgresql", "mysql",
-    "mongodb", "redis", "sql", "nosql", "graphql", "restful", "api", "apis",
-    "sdk", "json", "yaml", "html", "css", "javascript", "typescript", "nodejs",
-    "async", "asyncio", "numpy", "pandas", "matplotlib", "pytorch", "scikit",
-    "sklearn", "tensorflow", "etl", "elt", "dbt", "airflow", "kafka", "spark",
-    "snowflake", "redshift", "tableau", "powerbi", "kpis", "saas", "ci", "cd",
-    "oauth", "jwt", "ssl", "tls", "linux", "ubuntu", "bash", "cron", "ansible",
-    "terraform", "github", "gitlab", "bitbucket", "jira", "agile", "scrum",
-    "ux", "ui", "frontend", "onboarding", "upselling", "stakeholder",
-    "stakeholders", "analytics", "dataset", "datasets", "dashboards",
-    "scalable", "performant", "realtime", "url", "urls", "cli", "regex",
-    # modern compounds a 370k general list still misses (plurals via morphology)
-    "workflow", "walkthrough", "heatmap", "roadmap", "dropdown", "login",
-    "signup", "webpage", "website", "codebase", "toolkit", "dashboard",
-    "dataframe", "hostname", "runtime", "uptime", "downtime", "namespace",
-    "middleware", "changelog", "lifecycle", "chatbot", "plugin", "blockchain",
-    "crypto", "fintech", "ecommerce", "webhook", "endpoint", "endpoints",
-    "boilerplate", "scraping", "wireframe", "wireframes",
-}
+from .checks_ats import Finding
 
 # --- filler / hedging -------------------------------------------------------
 FILLERS = {
@@ -58,126 +32,68 @@ FILLERS = {
     "with the goal of": "to",
     "a wide range of": "many",
     "in terms of": "(rephrase)",
+    "when it comes to": "(rephrase)",
+    "the fact of the matter": "(drop it)",
+    "needless to say": "(drop it)",
+    "it goes without saying": "(drop it)",
 }
 HEDGES = ("could potentially", "might possibly", "may be able to", "sort of",
-          "kind of", "more or less")
+          "kind of", "more or less", "it could be argued", "arguably")
+# "Persuasive authority" framing — ceremony that adds no information.
+AUTHORITY = ("the real question is", "at its core", "what really matters",
+             "the heart of the matter", "the deeper issue")
 
 # --- AI tells ---------------------------------------------------------------
 # Conservative AI-vocabulary: words rarely legitimate on a resume. Deliberately
-# excludes enhance/leverage/robust/seamless — common, valid resume words.
+# excludes enhance/leverage/robust/seamless/dynamic/innovative — common, valid
+# resume words. Source: Wikipedia "Signs of AI writing" (§4, §7).
 AI_VOCAB = {
     "delve", "tapestry", "testament", "vibrant", "underscore", "underscores",
-    "intricate", "interplay", "realm", "myriad", "plethora", "embark",
-    "multifaceted", "nuanced", "showcasing", "pivotal", "burgeoning",
+    "intricate", "intricacies", "interplay", "realm", "myriad", "plethora",
+    "embark", "multifaceted", "nuanced", "showcasing", "showcase", "showcases",
+    "pivotal", "burgeoning", "garner", "garnered", "fostering", "exemplifies",
+    "groundbreaking", "renowned", "boasts", "nestled", "enduring", "indelible",
+    "unparalleled", "unwavering", "transformative", "trailblazing", "bustling",
+    "captivating",
 }
-COPULA = ("serves as", "stands as", "boasts a", "boasts an", "acts as a")
+COPULA = ("serves as", "stands as", "boasts a", "boasts an", "acts as a",
+          "represents a")
+# Chatbot paste artifacts — if any of these survive into a resume, it was almost
+# certainly copied straight out of an AI chat. High-confidence tell.
+CHATBOT = ("as an ai", "as a language model", "i hope this helps",
+           "let me know if", "feel free to reach", "here is a", "here's a",
+           "great question", "as of my last", "i cannot provide")
+# Negative parallelism: "not just X but Y", "not only ... but also".
+_NEGPAR = re.compile(r"\bnot (?:just|only|merely)\b[^.\n]{0,50}\bbut\b", re.I)
+
 # Em dash + double/spaced hyphen used as punctuation. En dash (–) is NOT
-# flagged: on resumes it almost always means a date range ("2023 – 2024").
+# flagged: on resumes it almost always means a date range.
 _EMDASH = re.compile(r"—|\s--\s|\s—\s")
-# A dash between two dates is a range separator, not an AI tell — and people use
-# em dashes for it as often as en dashes. A "date side" is a month, a year, a
-# month+year, or present/now, so this covers "Jan '21 — Sep '25", "2023 —
-# Present", and "Aug — Sep". Both sides must be date-like, so a prose em dash
-# ("the team — delivering results") is still flagged.
-_MONTH = (r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?")
+# A dash between two dates is a range separator, not an AI tell. A "date side" is
+# a month, a year, a month+year, or present/now ("Jan '21 — Sep '25", "Aug —
+# Sep", "2023 — Present"). Both sides date-like, so a prose em dash is still hit.
+_MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
 _DATE_SIDE = rf"(?:{_MONTH}\s+)?'?\d{{2,4}}|{_MONTH}|present|current|now"
 _DATE_RANGE = re.compile(rf"(?:{_DATE_SIDE})\s*[—–-]\s*(?:{_DATE_SIDE})", re.I)
 _CURLY = re.compile(r"[‘’“”]")
-# Grammar (lightweight, high-precision — not a full grammar engine): an
-# accidentally repeated word ("the the", "and and"). Restricted to alphabetic
-# tokens of length >= 2 to avoid numeric/initial noise. A short allow-list keeps
-# the rare legitimate doubling ("had had", "that that").
-# A repeated word ("the the"). Lowercase-only on purpose: a repeated *capitalized*
-# word ("Finance Finance", "Berkeley Berkeley") is almost always a PDF column /
-# heading extraction artifact, not a writing error. Real doublings in prose are
-# function words, which are lowercase. _REPEAT_OK keeps legitimate doublings.
-_REPEAT = re.compile(r"\b([a-z]{2,})\s+\1\b")
-_REPEAT_OK = {"had", "that", "is", "do", "no", "so"}
-# Lowercase "i" used as the pronoun. Bounded so it ignores "i.e.", "ii", "i)",
-# and tech tokens like "i18n" / "i7" (digit-adjacent).
-_LOWER_I = re.compile(r"(?<![A-Za-z0-9.)])i(?![A-Za-z0-9.)'])")
 _EMOJI = re.compile(
     "[\U0001F300-\U0001FAFF\U0001F000-\U0001F0FF\U00002600-\U000027BF⬀-⯿]")
 
 
 @dataclass
 class WritingResult:
-    score: int
+    """Advisory only — these counts do NOT feed the overall score."""
     findings: list[Finding]
-    typos: int = 0
     fillers: int = 0
     ai_tells: int = 0
-    grammar: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.fillers + self.ai_tells
 
     @property
     def summary(self) -> str:
-        return (f"{self.typos} typos · {self.fillers} fillers · "
-                f"{self.ai_tells} AI-tells · {self.grammar} grammar")
-
-
-@lru_cache(maxsize=1)
-def _speller():
-    from spellchecker import SpellChecker
-    # distance=2 catches transpositions (recieve -> receive). Augment the small
-    # default dictionary with a 370k-word English list + tech terms so domain
-    # vocabulary isn't flagged as misspelled.
-    s = SpellChecker(distance=2)
-    wordfile = bundled_path("data/words_alpha.txt")
-    if wordfile.exists():
-        s.word_frequency.load_text_file(str(wordfile))
-    s.word_frequency.load_words(SPELL_ALLOW)
-    return s
-
-
-def _candidates(line: str):
-    """Lowercase, hyphen-free, URL-free word tokens worth spell-checking."""
-    line = _URL.sub(" ", line)
-    for raw in line.split():
-        if any(c in raw for c in "-/.@_"):
-            continue  # hyphenated compound, URL, path, or handle
-        t = raw.strip(_STRIP)
-        if len(t) >= 3 and t.isascii() and t.isalpha() and t.islower():
-            yield t
-
-
-def _known(spell, w: str) -> bool:
-    return not spell.unknown([w])
-
-
-def _is_typo(spell, w: str) -> bool:
-    if w in SPELL_ALLOW or _known(spell, w):
-        return False
-    # Tolerate morphological variants of a known word (the dictionary lacks many
-    # plurals/verb forms/British spellings, which would otherwise be false hits).
-    stems = []
-    for suf, cut in (("s", 1), ("es", 2), ("ed", 2), ("ing", 3), ("er", 2), ("ly", 2)):
-        if w.endswith(suf) and len(w) - cut >= 3:
-            stems.append(w[:-cut])
-    if w.endswith("ies") and len(w) > 4:
-        stems.append(w[:-3] + "y")  # companies -> company, currencies -> currency
-    brit = w.replace("isation", "ization").replace("ise", "ize").replace("our", "or")
-    if brit != w:
-        stems.append(brit)
-    return not any(_known(spell, s) for s in stems)
-
-
-def _spell_findings(text: str) -> tuple[int, list[Finding]]:
-    spell = _speller()
-    findings: list[Finding] = []
-    seen: set[str] = set()
-    count = 0
-    for ln, line in enumerate(text.splitlines(), start=1):
-        if EMAIL.search(line):
-            continue  # don't spell-check emails/handles
-        for w in _candidates(line):
-            if w in seen or not _is_typo(spell, w):
-                continue
-            seen.add(w)
-            count += 1
-            fix = spell.correction(w)
-            tip = f" → {fix}" if fix and fix != w else ""
-            findings.append(Finding("warn", f'line {ln}: "{w}"{tip}', 2))
-    return count, findings
+        return f"{self.fillers} filler · {self.ai_tells} AI-tells (advice only)"
 
 
 def check_writing(doc: Document) -> WritingResult:
@@ -185,56 +101,45 @@ def check_writing(doc: Document) -> WritingResult:
     low = text.lower()
     findings: list[Finding] = []
 
-    typos, spell_f = _spell_findings(text)
-    findings.extend(spell_f[:15])  # cap spelling noise in the report
-
     fillers = 0
     for phrase, fix in FILLERS.items():
         for _ in re.finditer(re.escape(phrase), low):
             fillers += 1
-            findings.append(Finding("warn", f'filler "{phrase}" → {fix}', 2))
-    for h in HEDGES:
+            findings.append(Finding("warn", f'filler "{phrase}" → {fix}', 0))
+    for h in HEDGES + AUTHORITY:
         if h in low:
             fillers += 1
-            findings.append(Finding("warn", f'hedging "{h}"', 2))
-
-    grammar = 0
-    for ln, line in enumerate(text.splitlines(), start=1):
-        m = _REPEAT.search(line)
-        if m and m.group(1) not in _REPEAT_OK:
-            grammar += 1
-            findings.append(Finding(
-                "warn", f'line {ln}: repeated word "{m.group(1)} {m.group(1)}"', 2))
-        if _LOWER_I.search(line):
-            grammar += 1
-            findings.append(Finding('warn', f'line {ln}: lowercase "i" (use "I")', 2))
+            findings.append(Finding("warn", f'wordy "{h}"', 0))
 
     ai = 0
     for ln, line in enumerate(text.splitlines(), start=1):
         ll = line.lower()
         if _EMDASH.search(line) and not _DATE_RANGE.search(line):
             ai += 1
-            findings.append(Finding("warn", f"line {ln}: em dash / double hyphen", 3))
+            findings.append(Finding("warn", f"line {ln}: em dash / double hyphen (replace with a comma or period)", 0))
         if _CURLY.search(line):
             ai += 1
-            findings.append(Finding("warn", f"line {ln}: curly quotes", 2))
+            findings.append(Finding("warn", f'line {ln}: curly quotes (use straight quotes)', 0))
         if _EMOJI.search(line):
             ai += 1
-            findings.append(Finding("warn", f"line {ln}: emoji", 3))
+            findings.append(Finding("warn", f"line {ln}: emoji (remove)", 0))
+        if _NEGPAR.search(line):
+            ai += 1
+            findings.append(Finding("warn", f'line {ln}: "not just … but" phrasing (rewrite plainly)', 0))
         for w in AI_VOCAB:
             if re.search(rf"\b{w}\b", ll):
                 ai += 1
-                findings.append(Finding("warn", f'line {ln}: AI vocab "{w}"', 3))
+                findings.append(Finding("warn", f'line {ln}: AI vocab "{w}"', 0))
         for c in COPULA:
             if c in ll:
                 ai += 1
-                findings.append(Finding("warn", f'line {ln}: "{c}" (copula avoidance)', 2))
+                findings.append(Finding("warn", f'line {ln}: "{c}" (use "is"/"has")', 0))
+        for c in CHATBOT:
+            if c in ll:
+                ai += 1
+                findings.append(Finding("warn", f'line {ln}: chatbot artifact "{c}" (delete)', 0))
 
-    penalty = (min(20, typos * 2) + min(10, fillers * 2) + min(15, ai * 3)
-               + min(6, grammar * 2))
-    score = max(0, 100 - penalty)
-    return WritingResult(score=score, findings=findings, typos=typos,
-                         fillers=fillers, ai_tells=ai, grammar=grammar)
+    return WritingResult(findings=findings, fillers=fillers, ai_tells=ai)
 
 
 def _selfcheck() -> None:
@@ -242,47 +147,25 @@ def _selfcheck() -> None:
         text="Developed scalable Python pipelines processing 50000 records daily.",
         fmt="pdf", source=None)  # type: ignore[arg-type]
     c = check_writing(clean)
-    assert c.typos == 0 and c.fillers == 0 and c.ai_tells == 0, vars(c)
-    assert c.score == 100, c.score
+    assert c.fillers == 0 and c.ai_tells == 0, vars(c)
 
     bad = Document(
-        text=("In order to delve into the experiance, I worked — using vibrant "
-              "skills 🚀 with the goal of growth.\n"
-              "the award i recieved in 2024."),
+        text=("In order to delve into the experience, I worked — using vibrant "
+              "skills 🚀 with the goal of growth. As an AI, I hope this helps.\n"
+              "The role serves as a testament to my work."),
         fmt="pdf", source=None)  # type: ignore[arg-type]
     b = check_writing(bad)
-    assert b.typos >= 2, b.typos                # experiance, recieved
     assert b.fillers >= 2, b.fillers            # in order to, with the goal of
-    assert b.ai_tells >= 3, b.ai_tells          # em dash, vibrant, emoji
-    assert b.score < c.score
+    assert b.ai_tells >= 5, vars(b)             # em dash, vibrant, emoji, delve, as an ai, serves as, testament
 
-    # En dash in a date range must NOT be flagged.
-    dr = check_writing(Document(text="Engineer 2023 – 2024 built systems.",
-                                fmt="pdf", source=None))  # type: ignore[arg-type]
-    assert dr.ai_tells == 0, dr.ai_tells
+    # En/em dash in a date range must NOT be flagged.
+    for rng in ("Engineer 2023 – 2024.", "Jan '21 — Sep '25", "Project Aug — Sep"):
+        assert check_writing(Document(text=rng, fmt="pdf", source=None)).ai_tells == 0, rng  # type: ignore[arg-type]
 
-    # Em-dash date ranges (month+year, month-only, to-present) are separators,
-    # not AI tells.
-    for rng in ("Jan '21 — Sep '25", "Project Aug — Sep", "Engineer 2023 — Present"):
-        rr = check_writing(Document(text=rng, fmt="pdf", source=None))  # type: ignore[arg-type]
-        assert rr.ai_tells == 0, (rng, rr.ai_tells)
-    # But a prose em dash is still an AI tell.
-    pe = check_writing(Document(text="The team — delivering great results.",
-                                fmt="pdf", source=None))  # type: ignore[arg-type]
-    assert pe.ai_tells == 1, pe.ai_tells
-
-    # "Python" capitalized is not a typo.
-    cap = check_writing(Document(text="Built APIs with Python and AWS Lambda.",
-                                 fmt="pdf", source=None))  # type: ignore[arg-type]
-    assert cap.typos == 0, vars(cap)
-
-    # Repeated word is a grammar flag; legitimate doubling ("had had") is not.
-    rep = check_writing(Document(text="Led the the migration to cloud.",
-                                 fmt="pdf", source=None))  # type: ignore[arg-type]
-    assert rep.grammar == 1, vars(rep)
-    ok = check_writing(Document(text="We had had three outages that quarter.",
-                                fmt="pdf", source=None))  # type: ignore[arg-type]
-    assert ok.grammar == 0, vars(ok)
+    # Spelling/grammar are gone in V1: a typo is not flagged here.
+    typo = check_writing(Document(text="Managed teh project budget.",
+                                  fmt="pdf", source=None))  # type: ignore[arg-type]
+    assert typo.ai_tells == 0 and typo.fillers == 0, vars(typo)
 
     print("writing selfcheck ok")
 
