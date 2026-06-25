@@ -1,5 +1,14 @@
 # ATS Score CLI — Build Tasks
 
+> **V1 pivot (current direction).** Shipped as an **ATS-readiness linter**: the
+> overall score is the ATS-readiness score; the focus is parsing + what the
+> resume is missing. Writing advice (filler + AI tells, expanded from the
+> humanizer guide) is shown but **not scored**. Cut from V1: content-quality
+> grading (code kept, unwired) and spelling/grammar (removed). The embedding
+> model is **not bundled** — JD-match is disabled in the binary and degrades to
+> the taxonomy-only skills readback. Binary trimmed 133MB → ~86MB. See
+> [README.md](README.md) for the shipped behavior.
+
 Build order for the whole project. See [specs.md](specs.md) for the why. Check off as you go.
 
 Cross-OS rule running through everything: **never hardcode paths or separators, never assume an encoding, never assume a shell.** Use `pathlib`, `encoding="utf-8"`, and resolve bundled data via `sys._MEIPASS`.

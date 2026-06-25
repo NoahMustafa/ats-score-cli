@@ -1,46 +1,46 @@
 # ATS Score CLI
 
-Terminal tool that scores a resume (PDF or DOCX) for ATS-readiness, content
-quality, and writing quality — and, optionally, match against a job
-description. Fully offline, no account, no upload. Ships as a single
-self-contained binary per OS (`tool.exe` on Windows, `tool` on Linux/macOS);
-the model weights, dictionaries, and skill taxonomy are bundled inside.
+A terminal **ATS-readiness linter** for resumes (PDF or DOCX). It answers one
+question well: *can an applicant tracking system parse this resume, and what is
+it missing?* Fully offline, no account, no upload. Ships as a single
+self-contained binary per OS (`tool.exe` on Windows, `tool` on Linux/macOS).
 
 ```
-tool resume.pdf                 # ATS + content + writing  (+ skills the parser read)
-tool resume.pdf --jd job.txt    # + JD match (job description from a file)
-tool resume.pdf --jd "python, sql, aws, kubernetes"   # JD as raw text
-tool resume.pdf --json          # machine-readable output (for scripts)
+tool resume.pdf            # ATS-readiness score + what's missing + writing advice
+tool resume.pdf --json     # machine-readable output (for other tools)
 ```
 
-The score is **0–100 overall**, plus four sub-scores. Every sub-score starts at
-100 and loses points per issue found, so the findings — not the number — are the
-point. A clean resume keeps its points.
+The **overall score is the ATS-readiness score** (0–100). The findings — what's
+broken or missing for parsing — are the point, not the number.
+
+> **V1 scope.** This release focuses on the deterministic, reusable core:
+> parsing and ATS-readiness. Content-quality grading (bullet strength,
+> quantification) and spelling/grammar were dropped — they were low-signal and
+> noisy. JD-to-resume matching exists in the code but needs an embedding model
+> that is **not bundled** in V1, so it is disabled in the shipped binary (see
+> "JD match" below).
 
 ---
 
-## What it actually checks
+## What it checks
 
-### 1. Extraction (what we read out of the file first)
+### 1. Extraction (what we read out of the file)
 
-Before scoring, the resume is parsed into text + layout facts:
+- **PDF** via `pdfplumber`, **DOCX** via `python-docx`. Dispatch is by extension.
+- **Two-column layouts** detected and de-scrambled (left column then right), so
+  the text isn't the jumble an ATS would produce.
+- **Vector ("drawn") bullets** — bullets that are graphics, not characters
+  (common in Word/Canva exports) — are detected and flagged, because a real ATS
+  won't see them as a list.
+- **Tables, images, scanned pages** (images with almost no text) detected.
+- **Hyperlinks** (`mailto:`, `tel:`, `http`) pulled from PDF annotations and
+  DOCX relationships, so an email/phone behind a contact icon still counts.
+- Cleanup: line-ending normalization, removal of icon glyphs and zero-width
+  characters, de-hyphenation of words split across a line break.
 
-- **PDF** via `pdfplumber`, **DOCX** via `python-docx`. Dispatch is by file
-  extension; anything else is rejected.
-- **Two-column layouts** are detected and de-scrambled (left column read fully,
-  then the right) so the text isn't the line-by-line jumble an ATS would produce.
-- **Vector ("drawn") bullets** — bullets that are graphics, not text characters
-  (common in Word/Canva exports) — are detected and reconstructed so they can be
-  graded. They are still flagged, because a real ATS won't see them as a list.
-- **Tables, images, and scanned pages** (images with almost no text) are detected.
-- **Hyperlinks** (`mailto:`, `tel:`, `http`) are pulled from PDF annotations and
-  DOCX relationships, so an email/phone hidden behind a contact icon still counts.
-- **Cleanup**: line-ending normalization, removal of unmappable icon glyphs and
-  zero-width characters, and de-hyphenation of words split across a line break.
+### 2. ATS readiness — the score
 
-### 2. ATS readiness — can a tracking system parse it (weight: highest)
-
-Start 100, subtract:
+Start at 100, subtract per issue:
 
 | Check | Severity | Penalty |
 |---|---|---|
@@ -50,120 +50,60 @@ Start 100, subtract:
 | Images present | warn | −5 |
 | Bullets are graphics, not text | warn | −4 |
 | Missing a standard section — each of Summary, Experience, Education, Skills | warn | −8 each |
-| **No email** found (text or `mailto:` link) | fail | −10 |
+| No email found (text or `mailto:` link) | fail | −10 |
 | No phone found (text or `tel:` link) | warn | −5 |
 | No location found (city/region, or "Remote") | warn | −3 |
 | No LinkedIn / portfolio link | warn | −3 |
-| **Inconsistent date formats** | warn | −5 |
+| Inconsistent date formats (mix of word / numeric / `'21` styles) | warn | −5 |
 
-- **Sections** are matched by heading keywords (e.g. Summary/Profile/Objective,
-  Experience/Employment/Work History, Education/Academic,
-  Skills/Competencies/Technologies), case-insensitive. A **Projects** section is
-  *not* required (no penalty if absent), but if present its bullets are graded
-  like Experience bullets — see Content below.
-- **Location** is searched only in the header zone (top of the resume), so a
-  `Languages, Python` line in a skills section can't pass as a location.
-- **Date consistency** flags mixing any of three styles in one resume: word
-  (`Jan 2024`), numeric (`01/2024`), and two-digit apostrophe (`'21` / `Jan '24`).
-  It still does not judge separator style or month-only vs month-year.
+- A **Projects** section is not required (no penalty if absent).
+- **Location** is searched only in the header zone, so a `Languages, Python`
+  skills line can't pass as a location.
 
-### 3. Content quality — are the bullets strong
+### 3. Writing advice — shown, **not scored**
 
-Only bullets **under an Experience/Employment/Work/Project heading** are graded
-(those are achievements). Bullets under Skills/Summary and `Category: items`
-lines are exempt. Start 100, subtract:
+Reported as suggestions that do **not** change the overall score:
 
-| Check | Penalty |
-|---|---|
-| Bullets lacking a number — tolerates ~30% bare, penalizes the excess by ratio | up to −15 |
-| Weak verb to start a bullet (`responsible for`, `worked`, `helped`, `assisted`…) | −3 each |
-| Bullet doesn't start with an action verb | −2 each |
-| Bullet too long (> 45 words) | −2 each |
-| Resume too short (< 200 words) | −15 |
-| Resume too long (> 900 words, or > 1300 for a senior/lead resume) | −8 |
-| No bullet points found at all | −10 |
+- **Filler / hedging / ceremony**: *in order to → to*, *a wide range of → many*,
+  *when it comes to*, *could potentially*, *at its core*, etc.
+- **AI-generated tells** (from Wikipedia's "Signs of AI writing"): em dash / `--`
+  as punctuation (**date ranges like `Jan '21 — Sep '25` are exempt**), emojis,
+  curly quotes, AI vocabulary (*delve, tapestry, testament, vibrant, pivotal,
+  garner, boasts…*), copula avoidance (*serves as, stands as*), negative
+  parallelism (*not just X but Y*), and chatbot-paste artifacts (*as an AI,
+  I hope this helps*). En dashes are never flagged.
 
-- **"Has a number"** ignores years (`in 2024`) and version numbers (`Python 3.11`)
-  so they can't fake a metric; magnitude words (`doubled`, `hundreds`, `zero`)
-  do count.
-- **Seniority** (many dated entries, or a senior/lead/principal title) raises the
-  length ceiling.
+### Skills the parser read
 
-### 4. Writing quality — typos, filler, AI tells
+With no JD, the report lists the skills it could extract from the resume against
+a bundled cross-domain taxonomy (ESCO + tech, ~66k phrases) — a readback, not a
+score. If a key skill is missing from that list, your formatting hid it.
 
-Start 100, subtract (each category capped so one type can't tank the score):
+### JD match (disabled in the V1 binary)
 
-- **Spelling** (cap −20): `pyspellchecker` (edit distance 2) against a bundled
-  370k-word English list plus a tech allow-list. It **skips** capitalized words
-  (names, companies, `Python`, `AWS`), URLs, emails, and hyphenated compounds,
-  and tolerates plural/verb/British morphology — so it reports real typos, not
-  vocabulary it simply doesn't know. Each flagged word shows a suggested fix.
-- **Filler & hedging** (cap −10): phrases like *in order to → to*,
-  *due to the fact that → because*, *a wide range of → many*, plus hedges
-  (*could potentially*, *sort of*).
-- **AI-generated tells** (cap −15): em dash / `--` used as punctuation
-  (**date ranges like `Jan '21 — Sep '25` are exempt**), emojis, curly quotes,
-  tell-tale vocabulary (*delve, tapestry, testament, myriad, pivotal*…), and
-  copula-avoidance patterns (*serves as, stands as*). En dashes are never flagged.
-- **Light grammar** (cap −6): a small, high-precision rule pack — repeated words
-  (*the the*) and the pronoun *i* written lowercase. This is **not** a full
-  grammar engine (see "what it does not check"); the rules are tuned to fire on
-  real errors, not on PDF-extraction spacing noise.
-
-### 5. JD match — only when you pass `--jd`
-
-Optional. Without a JD, this section is skipped entirely (and instead the report
-lists the **skills the parser could read** in your resume — a readback, not a
-score; if a key skill is missing from that list, your formatting hid it).
-
-With a JD, the match score = **50% semantic similarity + 50% skill coverage**:
-
-- **Semantic similarity**: cosine between resume and JD using static embeddings
-  (`model2vec` / potion-8M, 256-dim, offline). A fuzzy overall signal.
-- **Skill coverage**: skills are matched against a bundled cross-domain taxonomy
-  (ESCO + tech terms, ~66k phrases) using 1–4 word phrase matching, so the
-  **missing-skills list is real skills** (e.g. `azure`, `kubernetes`), not JD
-  prose. British spellings are normalized. This list is the actionable output.
+Matching a resume against a job description needs static embeddings
+(`model2vec`/potion-8M). That model is **not bundled** in V1 (it would add ~34MB
+and the feature was the fuzziest part), so `--jd` reports that the match is
+unavailable and falls back to the skills readback. The code path is intact: drop
+the model into `ats_score/data/potion-8M` (and rebuild without the model
+excludes) to re-enable cosine + skill-gap matching.
 
 ---
 
-## How the overall score is weighted
-
-| | ATS | Content | Writing | JD match |
-|---|---|---|---|---|
-| **Without `--jd`** | 40% | 35% | 25% | — |
-| **With `--jd`** | 30% | 25% | 20% | 25% |
-
-ATS-readiness is weighted highest: a resume the machine can't parse fails before
-content or wording matter.
-
----
-
-## What it does **not** check (known gaps)
+## What it does **not** do (V1)
 
 Being honest so the score isn't misleading:
 
-- **Grammar is a rule pack, not a full engine.** It catches repeated words and
-  lowercase *i*, but not subject–verb agreement, tense consistency, or sentence
-  structure. A full grammar checker (LanguageTool) needs a ~250 MB Java runtime
-  and downloads on first use — incompatible with an offline single binary, and
-  noisy on résumé fragments anyway, so it was deliberately not used.
-- **The skill taxonomy is ESCO-based**, so the JD skill gap is strongest for
-  common professional/tech roles and thinner for niche trades — we can't report
-  skills the dataset doesn't contain. Occasional mis-segmentation noise (a
-  generic phrase slipping into the list) is still possible despite filtering.
-- **Drawn-bullet reconstruction is generous-for-grading by design**, not an ATS
-  simulator: we recover graphic bullets so content can score them, but still flag
-  them as a parsing risk because a real ATS won't see them. This is intended
-  behavior, not a defect.
+- **No content-quality scoring** (bullet strength, quantified achievements,
+  action verbs). The grader exists in the code but is unwired — it was
+  unreliable (e.g. it scored *higher* when it failed to find bullets).
+- **No spelling or grammar checking.** Removed in V1 as low-signal/noisy.
+- **No JD match in the shipped binary** (model not bundled — see above).
 - **The "bullets are graphics" flag can over-trigger.** Detection keys on small
-  left-margin vector marks; a resume that uses no text bullets but has decorative
-  marks (dividers, icons) can read as having graphic bullets. It fires on a large
-  share of real-world PDFs, so treat that one warning (−4) as soft. On the
-  to-improve list.
-- **Location detection is heuristic** (header-zone "City, Region" / "Remote"); an
-  unusual location format may not be recognized.
-- **Not a recruiter/batch ranking tool** — it scores one resume at a time.
+  left-margin vector marks; a resume with decorative marks but no text bullets
+  can read as having graphic bullets. Treat that one warning (−4) as soft.
+- **Not a recruiter / batch tool** — it scores one resume at a time. Batch
+  ranking is deferred (it also carries an EU AI Act / NYC LL144 legal surface).
 
 ---
 

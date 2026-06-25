@@ -8,11 +8,7 @@
 # (core._model_available() returns False when data/potion-8M is absent). We
 # bundle only the skills taxonomy, which is taxonomy-only and needs no model.
 # Spelling was removed, so words_alpha.txt is not bundled either.
-datas = [
-    ("ats_score/data/skills.txt", "ats_score/data"),
-    ("ats_score/data/esco_version.txt", "ats_score/data"),
-]
-datas = [d for d in datas if __import__("os").path.exists(d[0])]
+datas = [("ats_score/data/skills.txt", "ats_score/data")]
 
 a = Analysis(
     ["run.py"],
