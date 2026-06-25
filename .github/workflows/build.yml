@@ -18,10 +18,17 @@ jobs:
             binary: dist/tool.exe
           # Build on the oldest supported glibc so the binary runs on newer too.
           - os: ubuntu-22.04
-            artifact: tool-linux
+            artifact: tool-linux-x86_64
             binary: dist/tool
-          - os: macos-latest
-            artifact: tool-macos
+          - os: ubuntu-22.04-arm
+            artifact: tool-linux-arm64
+            binary: dist/tool
+          # macos-13 is the last Intel runner; macos-14 is Apple Silicon (arm64).
+          - os: macos-13
+            artifact: tool-macos-x86_64
+            binary: dist/tool
+          - os: macos-14
+            artifact: tool-macos-arm64
             binary: dist/tool
     runs-on: ${{ matrix.os }}
     steps:
@@ -50,6 +57,7 @@ jobs:
           HF_HOME: "${{ runner.temp }}/no_hf_cache"
         run: |
           "${{ matrix.binary }}" --help
+          "${{ matrix.binary }}" --version
           python - <<'PY'
           import docx
           d = docx.Document()

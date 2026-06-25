@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ats-score"
-version = "0.1.0"
+version = "0.2.0"
 description = "Terminal tool that scores a resume for ATS-readiness, writing quality, and JD match. Offline, single binary."
 readme = "README.md"
 requires-python = ">=3.10"

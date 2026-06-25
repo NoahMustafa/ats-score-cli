@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from . import __version__
 from .core import score
 from .report import render, render_json
 
@@ -21,6 +22,8 @@ def main(argv: list[str] | None = None) -> int:
         prog="ats-score",
         description="Score a resume for ATS-readiness, content, and writing. "
                     "Add --jd to also match it against a job description.")
+    parser.add_argument("--version", action="version",
+                        version=f"%(prog)s {__version__}")
     parser.add_argument("resume", help="resume file (.pdf or .docx)")
     parser.add_argument("--jd", metavar="FILE_OR_TEXT",
                         help="job description file (or text) to match against")
