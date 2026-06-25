@@ -26,7 +26,26 @@ def main(argv: list[str] | None = None) -> int:
                         help="job description file (or text) to match against")
     parser.add_argument("--json", action="store_true",
                         help="emit machine-readable JSON instead of a report")
+    parser.add_argument("--md", nargs="?", const="", metavar="OUTFILE",
+                        help="export the resume as structured Markdown (optional "
+                             "output path; defaults beside the resume) and exit")
+    parser.add_argument("--force", action="store_true",
+                        help="overwrite the --md output if it exists "
+                             "(default: auto-rename name-1.md, name-2.md, …)")
     args = parser.parse_args(argv)
+
+    if args.md is not None:
+        from .tomd import export_markdown
+        try:
+            out = export_markdown(args.resume, args.md or None, force=args.force)
+        except FileNotFoundError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        except ValueError as e:  # unsupported file type
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        print(f"wrote {out}")
+        return 0
 
     try:
         report = score(args.resume, args.jd)

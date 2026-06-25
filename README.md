@@ -9,6 +9,7 @@ self-contained binary per OS (`tool.exe` on Windows, `tool` on Linux/macOS).
 tool resume.pdf                  # ATS-readiness score + what's missing + writing advice
 tool resume.pdf --jd job.txt     # + two-tier JD match (skill gap + requirement coverage)
 tool resume.pdf --json           # machine-readable output (for other tools)
+tool resume.pdf --md             # export to clean structured Markdown (no scoring)
 ```
 
 The **overall score is the ATS-readiness score** (0–100). The findings — what's
@@ -115,6 +116,29 @@ For the best match, paste the **whole posting** (responsibilities + requirements
   words**, broken on newlines, sentence punctuation, and bullets. Keep
   requirement statements as real sentences; short headers ("Requirements:") are
   ignored. Bullets and line breaks are fine.
+
+### Markdown export (`--md`) — for feeding a resume to an LLM
+
+Dump the resume to clean, **structured Markdown** instead of scoring it — useful
+when another model needs to read the resume without fighting PDF layout. It runs
+the same extraction as scoring, so the column de-scramble, drawn-bullet
+reconstruction, glyph cleanup, and link recovery all carry over.
+
+```
+tool resume.pdf --md                 # writes resume.md beside the resume
+tool resume.pdf --md out.md          # explicit output file
+tool resume.pdf --md docs/           # a directory → docs/resume.md
+tool resume.pdf --md --force         # overwrite instead of auto-renaming
+```
+
+- The output path is **optional** — it defaults to the resume's name with a
+  `.md` suffix, in the resume's folder. A directory target writes `<stem>.md`
+  inside it; a path with no suffix gets `.md`.
+- **No silent overwrite.** If the target exists, it's auto-renamed `name-1.md`,
+  `name-2.md`, … Pass `--force` to overwrite in place instead.
+- Mapping: first line → `# title`, section headers → `## heading`, bullets →
+  `- item`. Hyperlinks the parser recovered (including ones hidden behind contact
+  icons) are appended as a `## Links` section so the model sees them too.
 
 ---
 
