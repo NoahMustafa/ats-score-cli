@@ -116,9 +116,6 @@ For the best match, paste the **whole posting** (responsibilities + requirements
   requirement statements as real sentences; short headers ("Requirements:") are
   ignored. Bullets and line breaks are fine.
 
-See [examples/job_description_template.txt](examples/job_description_template.txt)
-for a ready-to-edit template.
-
 ---
 
 ## What it does **not** do (V1)
