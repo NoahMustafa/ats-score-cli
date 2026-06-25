@@ -4,9 +4,9 @@
 > overall score is the ATS-readiness score; the focus is parsing + what the
 > resume is missing. Writing advice (filler + AI tells, expanded from the
 > humanizer guide) is shown but **not scored**. Cut from V1: content-quality
-> grading (code kept, unwired) and spelling/grammar (removed). The embedding
-> model is **not bundled** — JD-match is disabled in the binary and degrades to
-> the taxonomy-only skills readback. Binary trimmed 133MB → ~86MB. See
+> grading (code kept, unwired) and spelling/grammar (removed). JD-match is a
+> two-tier check — Tier 1 deterministic skill gap + Tier 2 semantic requirement
+> coverage (potion-8M, bundled, offline). Binary ~125MB. See
 > [README.md](README.md) for the shipped behavior.
 
 Build order for the whole project. See [specs.md](specs.md) for the why. Check off as you go.

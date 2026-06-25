@@ -6,8 +6,9 @@ it missing?* Fully offline, no account, no upload. Ships as a single
 self-contained binary per OS (`tool.exe` on Windows, `tool` on Linux/macOS).
 
 ```
-tool resume.pdf            # ATS-readiness score + what's missing + writing advice
-tool resume.pdf --json     # machine-readable output (for other tools)
+tool resume.pdf                  # ATS-readiness score + what's missing + writing advice
+tool resume.pdf --jd job.txt     # + two-tier JD match (skill gap + requirement coverage)
+tool resume.pdf --json           # machine-readable output (for other tools)
 ```
 
 The **overall score is the ATS-readiness score** (0–100). The findings — what's
@@ -16,8 +17,7 @@ broken or missing for parsing — are the point, not the number.
 > **V1 scope.** This release focuses on the deterministic, reusable core:
 > parsing and ATS-readiness. Content-quality grading (bullet strength,
 > quantification) and spelling/grammar were dropped — they were low-signal and
-> noisy. JD-to-resume matching exists in the code but needs an embedding model
-> that is **not bundled** in V1, so it is disabled in the shipped binary (see
+> noisy. JD-to-resume matching is included as an optional two-tier check (see
 > "JD match" below).
 
 ---
@@ -79,14 +79,24 @@ With no JD, the report lists the skills it could extract from the resume against
 a bundled cross-domain taxonomy (ESCO + tech, ~66k phrases) — a readback, not a
 score. If a key skill is missing from that list, your formatting hid it.
 
-### JD match (disabled in the V1 binary)
+### JD match (`--jd`) — two tiers
 
-Matching a resume against a job description needs static embeddings
-(`model2vec`/potion-8M). That model is **not bundled** in V1 (it would add ~34MB
-and the feature was the fuzziest part), so `--jd` reports that the match is
-unavailable and falls back to the skills readback. The code path is intact: drop
-the model into `ats_score/data/potion-8M` (and rebuild without the model
-excludes) to re-enable cosine + skill-gap matching.
+Pass a job description (file or raw text) to match the resume against it. The
+match has two complementary layers and the report shows both:
+
+- **Tier 1 — skill gap (deterministic):** the JD's *named skills* (gazetteer
+  match) intersected with the resume's. Output: matched skills + a ranked
+  **missing-skills** list. Grounded, explainable, no hallucination.
+- **Tier 2 — requirement coverage (semantic):** each JD *prose requirement*
+  ("build reliable data pipelines", "work independently under pressure") is
+  embedded (`model2vec`/potion-8M, offline) and matched by max-similarity to the
+  resume's sentences. Output: a **"requirements your resume doesn't clearly
+  cover"** list — the phrased requirements with no clear evidence.
+
+The JD-match score blends the two (skill gap weighted higher). The embedding
+model is bundled, so this works fully offline. It still does not *reason* (it's
+vector similarity, not an LLM): it captures relatedness, not logical entailment
+or evidence quotes — that's a future `--deep` upgrade.
 
 ---
 
@@ -98,7 +108,10 @@ Being honest so the score isn't misleading:
   action verbs). The grader exists in the code but is unwired — it was
   unreliable (e.g. it scored *higher* when it failed to find bullets).
 - **No spelling or grammar checking.** Removed in V1 as low-signal/noisy.
-- **No JD match in the shipped binary** (model not bundled — see above).
+- **JD match doesn't reason.** Tier 2 is vector similarity, so it captures
+  relatedness, not entailment ("Docker" scores close to "Kubernetes"). No
+  evidence quotes or gap explanations — that's a future `--deep` (local LLM)
+  upgrade.
 - **The "bullets are graphics" flag can over-trigger.** Detection keys on small
   left-margin vector marks; a resume with decorative marks but no text bullets
   can read as having graphic bullets. Treat that one warning (−4) as soft.

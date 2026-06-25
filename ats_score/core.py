@@ -5,9 +5,10 @@ resume, and what is it missing. Writing advice (filler + AI tells) is reported
 but does NOT affect the score. Content-quality grading (bullets/quantification)
 is kept in the codebase but intentionally not wired into V1 — it was unreliable.
 
-JD-match needs the embedding model, which is not bundled in V1. It runs only
-when a JD is given AND the model is present on disk; otherwise the report just
-lists the skills the parser could read (taxonomy-only, no model needed).
+JD-match (Tier 1 skill gap + Tier 2 semantic requirement coverage) runs when a
+JD is given and the embedding model is present (it is bundled). If the model is
+ever stripped from a build, JD-match degrades to the taxonomy-only skills
+readback rather than failing.
 """
 
 from __future__ import annotations

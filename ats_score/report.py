@@ -46,9 +46,11 @@ def to_dict(r: Report) -> dict:
     }
     if r.similarity is not None:
         s = r.similarity
-        out["jd_match"] = {"score": s.score, "cosine": s.cosine,
-                           "coverage": s.coverage, "matched": s.matched,
-                           "missing": s.missing}
+        out["jd_match"] = {"score": s.score,
+                           "skill_coverage": s.skill_coverage,
+                           "prose_coverage": s.prose_coverage,
+                           "matched": s.matched, "missing": s.missing,
+                           "weak_requirements": s.weak}
     else:
         out["detected_skills"] = r.detected_skills
         if r.jd_unavailable:
@@ -99,9 +101,15 @@ def _render_plain(r: Report) -> str:
             L.append(f"  … and {len(r.writing.findings) - 20} more")
 
     if r.similarity is not None:
-        if r.similarity.missing:
-            L.append("\nMissing skills the JD asks for:")
-            L.append("  " + ", ".join(r.similarity.missing))
+        s = r.similarity
+        L.append(f"\nJD match: {s.score}/100  "
+                 f"(skills {s.skill_coverage:.0%} · requirements {s.prose_coverage:.0%})")
+        if s.missing:
+            L.append("Missing skills the JD names:")
+            L.append("  " + ", ".join(s.missing))
+        if s.weak:
+            L.append("Requirements your resume doesn't clearly cover:")
+            L.extend(f"  - {w}" for w in s.weak)
     else:
         if r.jd_unavailable:
             L.append("\n(JD match unavailable: embedding model not bundled in this build.)")
@@ -145,10 +153,17 @@ def _render_rich(r: Report) -> str:
 
     if r.similarity is not None:
         s = r.similarity
+        console.print(f"\n[bold]JD match[/] [{_color(s.score)}]{s.score}/100[/] "
+                      f"[dim](skills {s.skill_coverage:.0%} · "
+                      f"requirements {s.prose_coverage:.0%})[/]")
         if s.matched:
-            console.print("\n[bold green]Matched skills[/]  " + ", ".join(s.matched))
+            console.print("[green]Matched skills[/]  " + ", ".join(s.matched))
         if s.missing:
-            console.print("[bold red]Missing skills[/]  " + ", ".join(s.missing))
+            console.print("[bold red]Missing skills the JD names[/]  " + ", ".join(s.missing))
+        if s.weak:
+            console.print("[bold yellow]Requirements not clearly covered[/]")
+            for w in s.weak:
+                console.print(f"  [yellow]-[/] {w}")
     else:
         if r.jd_unavailable:
             console.print("\n[dim](JD match unavailable: model not bundled in this build.)[/]")

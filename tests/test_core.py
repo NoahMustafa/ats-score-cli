@@ -48,6 +48,19 @@ def test_jd_gated_on_model(resume):
         assert r.jd_unavailable and r.similarity is None
 
 
+def test_jd_two_tier_discriminates(resume):
+    if not _model_available():
+        pytest.skip("embedding model not bundled")
+    good = score(resume, "Data engineer with python, sql, aws and etl pipelines. "
+                         "Build and maintain reliable data pipelines.")
+    bad = score(resume, "Frontend developer with react, angular, css and figma. "
+                        "Convert designs into responsive web interfaces.")
+    assert good.similarity.score > bad.similarity.score, (
+        good.similarity.score, bad.similarity.score)
+    # Tier 1 hard gap is populated for the mismatched role.
+    assert bad.similarity.missing
+
+
 def test_writing_advice_does_not_affect_score(resume):
     # Overall is purely the ATS score; advice findings never change it.
     r = score(resume)

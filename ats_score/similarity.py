@@ -40,19 +40,28 @@ def _normalize_word(t: str) -> str:
     return t
 
 
+# "Met" threshold for a prose requirement's best semantic match against the
+# resume. Static embeddings (potion-8M) compress cosine into a ~0.3–0.6 band, so
+# this is calibrated, not absolute: on real JDs a matching role's requirements
+# cluster ≥0.50 while a mismatched role's sit ≤0.40. Tune here if the model
+# changes.
+_TAU = 0.50
+
+
 @dataclass
 class SimilarityResult:
     score: int
-    cosine: float
-    coverage: float
-    missing: list[str] = field(default_factory=list)
+    skill_coverage: float           # Tier 1: named JD skills found in resume
+    prose_coverage: float           # Tier 2: JD prose requirements covered
     matched: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)   # hard skill gap (Tier 1)
+    weak: list[str] = field(default_factory=list)       # prose reqs not covered (Tier 2)
 
     @property
     def summary(self) -> str:
-        miss = ", ".join(self.missing[:8]) if self.missing else "none"
-        return (f"cosine {self.cosine:.2f} · skill coverage {self.coverage:.0%} "
-                f"· missing: {miss}")
+        miss = ", ".join(self.missing[:6]) if self.missing else "none"
+        return (f"skill coverage {self.skill_coverage:.0%} · requirement "
+                f"coverage {self.prose_coverage:.0%} · missing: {miss}")
 
 
 # Lone ESCO entries that are generic English, not distinguishing skills. They
@@ -91,13 +100,32 @@ def _model():
     return StaticModel.from_pretrained(str(bundled_path("data/potion-8M")))
 
 
-def _cosine(a: str, b: str) -> float:
+def _max_sims(queries: list[str], corpus: list[str]):
+    """For each query, the best cosine against any corpus sentence (Tier 2)."""
     import numpy as np
-    emb = _model().encode([a, b])
-    na, nb = np.linalg.norm(emb[0]), np.linalg.norm(emb[1])
-    if na == 0 or nb == 0:
-        return 0.0
-    return float(emb[0] @ emb[1] / (na * nb))
+    m = _model()
+    Q = np.asarray(m.encode(queries), dtype="float32")
+    C = np.asarray(m.encode(corpus), dtype="float32")
+    Q /= np.linalg.norm(Q, axis=1, keepdims=True) + 1e-9
+    C /= np.linalg.norm(C, axis=1, keepdims=True) + 1e-9
+    return (Q @ C.T).max(axis=1)
+
+
+# Split text into clause-sized segments (sentences and bullet lines) for the
+# semantic layer. Headers and one-word lines fall out via the min-word filter.
+def _segments(text: str, min_words: int) -> list[str]:
+    out: list[str] = []
+    for line in text.splitlines():
+        for seg in re.split(r"(?<=[.;:])\s+|\s[•·–—|]\s", line):
+            seg = seg.strip(" \t•·-–—|")
+            if len(seg.split()) >= min_words:
+                out.append(seg)
+    return out
+
+
+def _requirements(jd_text: str) -> list[str]:
+    """JD prose requirements (responsibility / requirement sentences)."""
+    return _segments(jd_text, min_words=5)
 
 
 def _skills(text: str) -> set[str]:
@@ -128,23 +156,49 @@ def detect_skills(text: str, limit: int = 20) -> list[str]:
     return sorted(found, key=lambda s: (-len(s.split()), s))[:limit]
 
 
-def check_similarity(resume_text: str, jd_text: str) -> SimilarityResult:
+def check_similarity(resume_text: str, jd_text: str,
+                     tau: float = _TAU) -> SimilarityResult:
+    """Two-tier JD match.
+
+    Tier 1 (deterministic): how many of the JD's *named skills* the resume has,
+    and which are missing — the hard, actionable gap.
+    Tier 2 (semantic): how many of the JD's *prose requirements* are covered by
+    some resume sentence, via static-embedding max-similarity — catches phrased
+    requirements that have no single skill token.
+    """
     jd_skills = _skills(jd_text)
     resume_skills = _skills(resume_text)
-
     matched = jd_skills & resume_skills
     missing = jd_skills - resume_skills
-    # Specific (multi-word) skills first, then longer.
     missing_ranked = sorted(missing, key=lambda s: (-len(s.split()), -len(s)))
+    skill_cov = len(matched) / len(jd_skills) if jd_skills else 1.0
 
-    coverage = len(matched) / len(jd_skills) if jd_skills else 0.0
-    cosine = _cosine(resume_text, jd_text)
-    score = max(0, min(100, round(100 * (0.5 * cosine + 0.5 * coverage))))
+    reqs = _requirements(jd_text)
+    rsents = _segments(resume_text, min_words=4)
+    weak: list[str] = []
+    if reqs and rsents:
+        sims = _max_sims(reqs, rsents)
+        covered = int((sims >= tau).sum())
+        prose_cov = covered / len(reqs)
+        weak = [r for r, s in sorted(zip(reqs, sims), key=lambda x: x[1])
+                if s < tau]
+    else:
+        prose_cov = 1.0
+
+    # Blend, weighting the hard skill gap higher. Degrade gracefully when the JD
+    # has only skills or only prose.
+    if jd_skills and reqs:
+        score = round(100 * (0.6 * skill_cov + 0.4 * prose_cov))
+    elif jd_skills:
+        score = round(100 * skill_cov)
+    else:
+        score = round(100 * prose_cov)
 
     return SimilarityResult(
-        score=score, cosine=round(cosine, 3), coverage=round(coverage, 3),
-        missing=missing_ranked[:15],
+        score=max(0, min(100, score)),
+        skill_coverage=round(skill_cov, 3), prose_coverage=round(prose_cov, 3),
         matched=sorted(matched, key=lambda s: (-len(s.split()), s))[:15],
+        missing=missing_ranked[:15], weak=weak[:8],
     )
 
 
@@ -152,7 +206,7 @@ def _selfcheck() -> None:
     resume = ("Data engineer skilled in python, sql, airflow and aws. Built etl "
               "pipelines and dashboards with postgresql and power bi.")
     r1 = check_similarity(resume, resume)
-    assert r1.coverage > 0.95, r1.coverage
+    assert r1.skill_coverage > 0.95, r1.skill_coverage
     assert r1.score >= 90, r1.score
 
     jd = ("Data engineer needed with python, kubernetes, spark and azure. "
@@ -166,8 +220,8 @@ def _selfcheck() -> None:
 
     unrelated = "Pastry chef creating desserts, cakes and breads in a busy kitchen."
     r3 = check_similarity(resume, unrelated)
-    assert r3.cosine < r1.cosine
-    assert r3.score < r2.score
+    assert r3.score < r2.score, (r3.score, r2.score)
+    assert r3.prose_coverage <= r1.prose_coverage
 
     # British spelling normalized against the taxonomy.
     r4 = check_similarity("skilled in data modeling", "need data modelling")
