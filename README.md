@@ -1,4 +1,4 @@
-# ATS Score CLI
+# open-ATS
 
 A terminal **ATS-readiness linter** for resumes (PDF or DOCX). It answers one
 question well: *can an applicant tracking system parse this resume, and what is
