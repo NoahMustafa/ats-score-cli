@@ -1,15 +1,32 @@
+<div align="center">
+
 # open-ATS
 
-A terminal **ATS-readiness linter** for resumes (PDF or DOCX). It answers one
-question well: *can an applicant tracking system parse this resume, and what is
-it missing?* Fully offline, no account, no upload. Ships as a single
-self-contained binary per OS (`tool.exe` on Windows, `tool` on Linux/macOS).
+**A single-binary CLI tool that scores your resume the way an ATS parses it.**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/NoahMustafa/open-ATS)](https://github.com/NoahMustafa/open-ATS/releases/latest)
+[![Build](https://github.com/NoahMustafa/open-ATS/actions/workflows/build.yml/badge.svg)](https://github.com/NoahMustafa/open-ATS/actions/workflows/build.yml)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-blue)](https://github.com/NoahMustafa/open-ATS/releases/latest)
+[![Offline](https://img.shields.io/badge/runs-100%25%20offline-lightgrey)](#)
+
+No install, no account, no upload — download **one binary** and run it.
+
+</div>
+
+---
+
+One file, one command, one answer: **can an applicant tracking system parse
+this resume, and what's missing?** No Python required, no dependencies to
+install, no server-side upload of your resume — `tool` (or `tool.exe` on
+Windows) is a single self-contained executable that runs fully offline.
 
 ```
 tool resume.pdf                  # ATS-readiness score + what's missing + writing advice
 tool resume.pdf --jd job.txt     # + two-tier JD match (skill gap + requirement coverage)
 tool resume.pdf --json           # machine-readable output (for other tools)
 tool resume.pdf --md             # export to clean structured Markdown (no scoring)
+tool --version                   # check the binary's version
 ```
 
 The **overall score is the ATS-readiness score** (0–100). The findings — what's
@@ -20,6 +37,25 @@ broken or missing for parsing — are the point, not the number.
 > quantification) and spelling/grammar were dropped — they were low-signal and
 > noisy. JD-to-resume matching is included as an optional two-tier check (see
 > "JD match" below).
+
+---
+
+## Install
+
+Grab the binary for your OS from the [latest release](https://github.com/NoahMustafa/open-ATS/releases/latest)
+— no Python, no `pip install`, no dependencies:
+
+| OS | Binary |
+|---|---|
+| Windows | `tool-windows.exe` |
+| Linux (x86_64) | `tool-linux-x86_64` |
+| Linux (arm64) | `tool-linux-arm64` |
+| macOS (Apple Silicon) | `tool-macos-arm64` |
+
+```
+chmod +x tool-linux-x86_64        # Linux/macOS only
+./tool-linux-x86_64 resume.pdf
+```
 
 ---
 
