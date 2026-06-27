@@ -7,12 +7,12 @@ name = "ats-score"
 version = "0.2.0"
 description = "Terminal tool that scores a resume for ATS-readiness, writing quality, and JD match. Offline, single binary."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "NoahMustafa" }]
 dependencies = [
     "pdfplumber>=0.11",
     "python-docx>=1.1",
-    "pyspellchecker>=0.8",
     "model2vec>=0.3",
     "rich>=13.0",
 ]

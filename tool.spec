@@ -7,7 +7,6 @@
 from PyInstaller.utils.hooks import copy_metadata
 
 # Bundle the skills taxonomy and the embedding model (Tier 1 + Tier 2 JD match).
-# Spelling was removed, so words_alpha.txt is intentionally NOT bundled.
 datas = [
     ("ats_score/data/skills.txt", "ats_score/data"),
     ("ats_score/data/potion-8M", "ats_score/data/potion-8M"),
